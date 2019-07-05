@@ -1,12 +1,12 @@
 local Shader = {
 
-  
   Default = (function()
     
     local vert = [[
       
       uniform mat4 mvp; 
-    
+      uniform mat4 model;
+      
       vec4 position(mat4 transform_projection, vec4 vertex_position)
       {
           vec4 p = mvp * vertex_position;
@@ -20,7 +20,11 @@ local Shader = {
       
         vec4 effect( vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords )
         {
-          return vec4(texture_coords, 0.0, 1.0);
+          if (mod(screen_coords.x + screen_coords.y, 10.0) < 5.0) {
+            discard;
+            return vec4(0.0, 0.0, 0.0, 0.0);
+          }
+          return vec4(color);
         }
     
     ]]
@@ -34,9 +38,10 @@ local Shader = {
 
 local cpml = require("lib/cpml")
 local mat4 = cpml.mat4;
+local vec3 = cpml.vec3;
 local activeShader = Shader.Default;
 
-local viewMatrixTemp = mat4();
+local cameraMatrix = mat4();
 local viewMatrix = mat4();
 local projectionMatrix = mat4();
 
@@ -44,6 +49,9 @@ local mvp = mat4();
 local mvpt = mat4();
 local mv = mat4();
 local mi = mat4();
+local vp = mat4();
+local pickMatrix = mat4();
+local tanX, tanY = 0;
 
 function viewLook(out, eye, look_at, up)
 	local z_axis = (eye - look_at):normalize()
@@ -75,6 +83,28 @@ return {
 
   cpml = cpml,
   
+  createCanvas3D = function(...)
+        
+    local colorCanvas = love.graphics.newCanvas(...);
+
+    colorCanvas:setFilter("linear", "linear");
+  
+    return {
+      color = colorCanvas;
+    }
+  
+  end,
+  
+  setCanvas3D = function(canvas3D)
+    
+   love.graphics.setCanvas({
+      {canvas3D.color},
+      depth = true,
+      stencil = true
+    });
+  
+  end,
+  
   setShader = function(shader) 
     love.graphics.setShader(shader);
     activeShader = shader;
@@ -82,21 +112,46 @@ return {
   
   setCameraView = function(eye, look_at, up)
 
-    viewLook(viewMatrixTemp, eye, look_at, up);
+    viewLook(cameraMatrix, eye, look_at, up);
     
-    viewMatrix:invert(viewMatrixTemp);
+    viewMatrix:invert(cameraMatrix);
     
   end,
   
   setCameraPerspective = function(fovy, aspect, near, far)
       
-      projectionMatrix = mat4.from_perspective(fovy, aspect, near, far);
+    projectionMatrix = mat4.from_perspective(fovy, aspect, near, far);
+    
+    tanY = math.tan(math.rad(fovy) * 0.5);
+    tanX = tanY * aspect; 
+    
+  end,
   
+  pickRay = function(x, y)
+  
+    x, y = x * 2 - 1, y * -2 + 1;
+        
+    local d = {x * tanX, y * tanY, -1.0, 0.0};
+    mat4.mul_vec4(d, cameraMatrix, d);
+    
+    local direction = vec3(d[1], d[2], d[3]);
+    direction = vec3.normalize(direction);
+    
+    return {
+      origin = vec3(cameraMatrix[13], cameraMatrix[14], cameraMatrix[15]),
+      direction = direction
+    };
+    
   end,
   
   drawMesh = function(mesh, modelMatrix)
   
     modelMatrix = modelMatrix or mi;
+    
+    if (activeShader:hasUniform("model")) then
+      activeShader:send("model", modelMatrix);
+    end
+    
     mv:mul(modelMatrix, viewMatrix);
     mvp:mul(mv, projectionMatrix);
     

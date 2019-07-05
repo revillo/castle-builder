@@ -164,6 +164,7 @@ function vec3.dot(a, b)
 	return a.x * b.x + a.y * b.y + a.z * b.z
 end
 
+
 --- Get the length of a vector.
 -- @tparam vec3 a Vector to get the length of
 -- @treturn number len
@@ -311,8 +312,29 @@ end
 vec3_mt.__index    = vec3
 vec3_mt.__tostring = vec3.to_string
 
-function vec3.set(_, x, y, z)
-  _.x, _.y, _.z = x, y, z;
+function vec3.set(v, x, y, z)
+  v.x, v.y, v.z = x, y, z;
+end
+
+function vec3.to_axis(v)
+
+  local ax, ay, az = math.abs(v.x), math.abs(v.y), math.abs(v.z);
+
+  if (ax > ay and ax > az) then
+    v.y = 0; v.z = 0;
+    v.x = v.x / ax;
+    return "x";
+  elseif (ay > az) then
+    v.z = 0; v.x = 0;
+    v.y = v.y / ay;
+    return "y";
+  else
+    v.x = 0; v.y = 0;
+    v.z = v.z / az;
+    return "z";
+  end
+  
+  
 end
 
 function vec3_mt.__call(_, x, y, z)
