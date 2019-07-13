@@ -78,6 +78,12 @@ function viewLook(out, eye, look_at, up)
   return out
 end
 
+function setUniform(name, ...)
+  if (activeShader:hasUniform(name)) then
+    activeShader:send(name,  ...);
+  end
+end
+  
 return {
   Shader = Shader, 
 
@@ -109,6 +115,8 @@ return {
     love.graphics.setShader(shader);
     activeShader = shader;
   end,
+  
+  setUniform = setUniform,
   
   setCameraView = function(eye, look_at, up)
 
@@ -146,11 +154,16 @@ return {
   
   drawMesh = function(mesh, modelMatrix)
   
+    if (not mesh) then
+      return
+    end
+
     modelMatrix = modelMatrix or mi;
     
-    if (activeShader:hasUniform("model")) then
-      activeShader:send("model", modelMatrix);
-    end
+    setUniform("model", modelMatrix);
+    setUniform("view", viewMatrix);
+    setUniform("time", love.timer.getTime());
+    setUniform("cameraPos", {cameraMatrix[13], cameraMatrix[14], cameraMatrix[15]});
     
     mv:mul(modelMatrix, viewMatrix);
     mvp:mul(mv, projectionMatrix);
