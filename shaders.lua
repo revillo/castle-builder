@@ -3,17 +3,59 @@ local DefaultVert = [[
   uniform mat4 mvp; 
   uniform mat4 model;
   uniform mat4 view;
+  uniform vec3 cameraPos;
+
+  uniform bool waterTile;
+  
   
   varying vec3 worldPos;
-  uniform bool waterTile;
+  varying vec3 normal;
+  varying vec3 tanCameraPos;
+  varying vec3 tanFragPos;
+  
+  attribute float FaceIndex;
+  
+    
+  vec3 faceNormals[] = vec3[6](
+    vec3(1.0, 0.0, 0.0),
+    vec3(-1.0, 0.0, 0.0),
+    vec3(0.0, -1.0, 0.0),
+    vec3(0.0, 1.0, 0.0),
+    vec3(0.0, 0.0, -1.0),
+    vec3(0.0, 0.0, 1.0)
+  );
+  
+  vec3 faceBitangents[] = vec3[6](
+    vec3(0.0, 1.0, 0.0),
+    vec3(0.0, 1.0, 0.0),
+    vec3(0.0, 0.0, -1.0),
+    vec3(0.0, 0.0, 1.0),
+    vec3(0.0, 1.0, 0.0),
+    vec3(0.0, 1.0, 0.0)
+  );
+  
   
   vec4 position(mat4 transform_projection, vec4 vertex_position)
   {
   
+    
       vec4 p = mvp * vertex_position;
       worldPos = (model * vertex_position).xyz;
       p.y = -p.y;      
       
+      
+      vec3 aNormal = faceNormals[int(FaceIndex)];
+      vec3 aBitangent = faceBitangents[int(FaceIndex)];
+      vec3 aTangent = normalize(cross(aBitangent, aNormal));
+      
+      vec3 T   = normalize(mat3(model) * aTangent);
+      vec3 B   = normalize(mat3(model) * aBitangent);
+      normal   = normalize(mat3(model) * aNormal);
+      mat3 TBN = transpose(mat3(T, B, normal));
+
+      tanCameraPos = TBN * cameraPos;
+      tanFragPos = TBN * worldPos;
+            
       if (waterTile) {
         p.z -= 0.0001;
       }
@@ -23,12 +65,9 @@ local DefaultVert = [[
 
 ]]
 
-local Shaders = {
-  
-  WaterTiles = (function()
-    
-    local frag = [[
-      vec3 random3(vec3 c) {
+
+local noise = [[
+ vec3 random3(vec3 c) {
       float j = 4096.0*sin(dot(c,vec3(17.0, 59.4, 15.0)));
       vec3 r;
       r.z = fract(512.0*j);
@@ -41,7 +80,7 @@ local Shaders = {
 
     const float F3 =  0.3333333;
     const float G3 =  0.1666667;
-    float snoise(vec3 p) {
+  float snoise(vec3 p) {
 
       vec3 s = floor(p + dot(p, vec3(F3)));
       vec3 x = p - s + dot(s, vec3(G3));
@@ -74,33 +113,32 @@ local Shaders = {
        
       return dot(d, vec4(52.0));
     }
-  
-    uniform float time;
+    
+        uniform float time;
 
     
     float snoiseFract(vec3 p) {      
-      return snoise(p) * sin(time) + snoise(p * 2.0) * 0.5 * cos(time);
+      //return snoise(p + vec3(time * 0.1)) * sin(time) + snoise(p * 2.0 - vec3(time * 0.2)) * 0.5 * cos(time);
+      return snoise(p + vec3(time * 0.1)) + snoise(p * 2.0 - vec3(time * 0.2)) * 0.5;
     }
-    
 
+]];
+
+local Shaders = {
+  
+  WaterTiles = (function()
+    
+    local frag = noise..[[
         varying vec3 worldPos;
         uniform vec3 cameraPos;
-
-        vec4 effect( vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords )
-        {
-          
+        
+        vec4 getWaterColor(vec4 color) {
+        
           vec3 wpos2 = worldPos;
           float noise = snoiseFract(wpos2) + 0.5;
           
-          //vec4 clr =  mix(vec4(0.0, 0.5, 0.9, 0.6), vec4(0.3, 0.6, 1.0, 0.8), noise);
-          //vec2 tc = texture_coords / 8.0;          
-          //vec4 tex = Texel(texture, tc);
-          //tex.a = 0.65;
-          
-          vec4 clr = mix(vec4(vec3(0.9), 0.5), vec4(vec3(1.0), 0.7), noise) * vec4(1.0, 0.0, 1.0, 1.0);
-          
           vec3 normal = -normalize(cross(dFdx(worldPos), dFdy(worldPos)));
-          vec3 wPos = wpos2 + normal * noise * 0.4;
+          vec3 wPos = wpos2 + normal * noise * 0.1;
           vec3 normalNoise = -normalize(cross(dFdx(wPos), dFdy(wPos)));
           
           vec3 eyeRay = normalize(wpos2 - cameraPos);
@@ -111,14 +149,22 @@ local Shaders = {
           float spec = pow(max(dot(r, sun), 0.0), 10.0);
           float diff = max(spec, dot(normalNoise, sun) * 0.2 + 0.8) * (normal.y * 0.4 + 0.6);
           
+          color = vec4(0.0, 0.7, 1.0, 0.6);
+          
+          float angle = abs(dot(eyeRay, normal)) / (1.0 + length(wpos2 - cameraPos) * 0.1);
+          
+          color.a = 1.0 - angle * 0.5;
+          
+          color = vec4(diff * color.rgb + vec3(spec * 0.5), color.a + spec * 0.3);
+          
+          return color;
+        }
+        
+        vec4 effect( vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords )
+        {
 
-          
-          //return vec4(diff * vec3(1.0, 0.0, 1.0) + vec3(spec * 0.5), 0.95 + spec);
-          return vec4(diff * color.rgb + vec3(spec * 0.5), color.a + spec);
-          //return vec4(vec3(pixels), 1.0);
-          
-          
-          //return clr;
+           return getWaterColor(color);
+         
         } 
     
     ]]
@@ -128,38 +174,155 @@ local Shaders = {
   
   Tiles = (function()
     
-    local frag = [[
+    local frag = noise..[[
       
         varying vec3 worldPos;
-        varying vec3 eyePos;
+        varying vec3 normal;
+        varying vec3 tanCameraPos;
+        varying vec3 tanFragPos;
+        
         uniform vec3 cameraPos;
-
+        //uniform float time;
+        extern Image bumpTex;
+        
+        vec2 parallax(vec2 texCoords, vec3 viewDir)
+        { 
+            float height = length(Texel(bumpTex, texCoords).rgb);    
+            vec2 p = vec2(viewDir.x, viewDir.y) / viewDir.z * (height * 0.001);
+            return texCoords - p;    
+        } 
+        
+        float fireNoise(vec3 pos) {
+          return snoise(pos * 2.0 + vec3(time * 0.1)) + snoise((pos + vec3(10.0)) * 4.0 - vec3(time * 0.15)) * 0.5;
+        }
+        
+         
+        vec4 getRubberColor(vec2 uv, vec4 color) {
+          vec3 wpos2 = worldPos;
+          uv = mod(uv, vec2(1.0));
+          vec2 uvdiff = uv - vec2(0.5);
+          float rectish = clamp((0.5 - max(abs(uvdiff.x), abs(uvdiff.y))) * 2.0, 0.0, 0.2);
+          float bubblish = pow(length(vec3(uvdiff, 0.0) - vec3(0.0, 0.0, 0.5)), 0.5);
+          float noise = (1.0 - bubblish);
+                    
+          vec3 normal = -normalize(cross(dFdx(worldPos), dFdy(worldPos)));
+          vec3 wPos = wpos2 + normal * noise * 1;
+          vec3 normalNoise = -normalize(cross(dFdx(wPos), dFdy(wPos)));
+          
+          vec3 eyeRay = normalize(wpos2 - cameraPos);
+          
+          vec3 r = reflect(eyeRay, -normalNoise);
+          
+          vec3 sun = normalize(vec3(1.0, 1.0, 1.0));
+          float spec = pow(max(dot(r, sun), 0.0), 5.0);
+          float diff = max(spec, dot(normalNoise, sun) * 0.2 + 0.8) * (normal.y * 0.4 + 0.6);
+                    
+          color = vec4(0.9, 0.2, 0.7, 0.6);
+          
+          float angle = abs(dot(eyeRay, normal)) / (1.0 + length(wpos2 - cameraPos) * 0.1);
+          
+          color.a = 1.0;
+          
+          color = vec4(diff * color.rgb + vec3(spec * 0.3), color.a + spec * 1.0);
+          
+          return color;
+        
+        }
+        
+        
+        const float shadowHeight = 8.0;
+        
+        float getPlayerShadow() {
+          vec3 diff = cameraPos - worldPos;
+          float height = diff.y - 1.3;
+          float dist = max(abs(diff.x), abs(diff.z));
+          if (dist < 0.3 && height > 0.0 && height < shadowHeight) {
+            return 0.5 + (height/(shadowHeight*2.0));
+          } else {
+            return 1.0;
+          }
+        }
+        
         vec4 effect( vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords )
         {
           
-          vec3 normal = -normalize(cross(dFdx(worldPos), dFdy(worldPos)));
+          if (texture_coords.y > 7.0) {
+            return getRubberColor(texture_coords, color);
+          }
           
-          vec2 tc = texture_coords / 8.0;          
-          vec4 tex = Texel(texture, tc);
-          tex.rgb *= color.rgb;
+          vec4 tex;
+          tex.a = 1.0;
+          vec2 tc;
+          float bump = 0.0;
+          bool fire = texture_coords.x > 7.0;
           
-          tex.rgb *= 0.6 + normal.y * 0.4;
+          if (!fire) {
+            //vec3 normal = -normalize(cross(dFdx(worldPos), dFdy(worldPos)));
+            tc = texture_coords / 8.0;
+            
+            //tc = parallax(tc, normalize(tanCameraPos - tanFragPos));
+
+            tex = Texel(texture, tc);
+            bump = length(Texel(bumpTex, tc).rgb);
+          } else {
+          
+            tc = vec2(mod(texture_coords.x + time, 1.0) + 7.0, texture_coords.y);  
+            tc = tc / 8.0;
+            //tex = Texel(texture, tc);
+            
+            //bump = 1.0 - length(Texel(bumpTex, tc).rgb);
+            bump = fireNoise(worldPos * 0.5) - 0.0;
+            if (bump > 0.0) {
+            
+              bump = pow(bump, 0.5);
+              tex.rgb = mix( vec3(1.0, 0.4, 0.1), vec3(0.4, 0.2, 0.1), bump ); 
+              //bump += 0.2;
+            }
+
+            if (bump < 0.0) {
+              tex.rgb = mix( vec3(1.0, 0.3, 0.1), vec3(1.0, 0.95, 0.3), -bump ); 
+              if (bump < -0.2) {
+                tex.rgb += vec3(-(bump + 0.2));
+              }
+              bump *= 0.25;
+            }
+          }
+            vec3 cameraRay = normalize(worldPos - cameraPos);
+
+            //tex.rgb *= color.rgb;
+            
+            vec3 wPos = worldPos + normal * bump * 0.05;
+            vec3 normalBump = -normalize(cross(dFdx(wPos), dFdy(wPos)));
+            vec3 r = reflect(cameraRay, -normalBump);
+
+            vec3 sun = normalize(vec3(1.0, 1.0, 1.0));
+            float spec = pow(max(dot(r, sun), 0.0), 20.0);
+            float diffuse = max(spec, dot(normalBump, sun) * 0.2 + 0.8) * 0.7 + 0.3 *normal.y;
+            
+            float shadow = getPlayerShadow();
+            diffuse *= shadow;
+            spec *= shadow;
+            
+            
+            if (fire) {
+                spec = pow(spec, 40.0) * 0.5;
+                diffuse = 1.0;
+                //tex.rgb += Texel(bumpTex, tc).rgb * vec3(1.0, 0.5, 0.5);
+            }
+            
+            return vec4(tex.rgb * diffuse + vec3(spec * 0.3), 1.0);
+           
+            
+            //return vec4(normal * 0.5 + vec3(0.5), 1.0);
+            
+            //Lava exception
+          
+          /*} else {
+           
+          }*/
           
           tex.a = color.a;
-          
-          /*
-          float texMag = length(tex);
-          vec3 wPos = worldPos - normal * texMag * 0.04;
-          vec3 normalNoise = -normalize(cross(dFdx(wPos), dFdy(wPos)));
-          vec3 eyeRay = normalize(worldPos - cameraPos);
-          vec3 r = reflect(eyeRay, -normalNoise);
-
-          vec3 sun = normalize(vec3(1.0, 1.0, 1.0));
-          float spec = pow(max(dot(r, sun), 0.0), 20.0);
-          float diff = max(spec, dot(normalNoise, sun) * 0.2 + 0.8);
-          return vec4(tex.rgb * diff + vec3(spec * 0.2), 1.0);
-          */
-          
+ 	          
           return tex;
         } 
     

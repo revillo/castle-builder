@@ -20,7 +20,7 @@ Voxel.BLOCK_PROPERTIES = {
   },
   
   wood = {
-    offset = {1, 0}
+    offset = {1, 1}
   },
   
   brick = {
@@ -28,18 +28,16 @@ Voxel.BLOCK_PROPERTIES = {
   },
   
   grass  = {
-    offset = {3, 0}
+    offset = {3, 1}
   },
   
   rubber = {
-    offset = {5, 0},
+    offset = {0, 8},
     bounciness = 10,
-    jelly = true,
-    color = {1, 0.3, 0.7, 0.9}
   },
   
   ice = {
-    offset = {6, 0},
+    offset = {5, 1},
     friction = 0.1
   },
   
@@ -50,7 +48,7 @@ Voxel.BLOCK_PROPERTIES = {
   water = {
     offset = {0, 1},
     color = {0, 1, 1, 0.7},
-    jelly = true
+    transparent = true;
   }
 
 }
@@ -62,8 +60,13 @@ for i, v in pairs(Voxel.BLOCK_TYPES) do
 end
 
 local Images = {
-  tiles = love.graphics.newImage('tiles.png', {mipmaps = true});
+  tiles = love.graphics.newImage('tiles2.png'),
+  tilesBump = love.graphics.newImage('tiles2.png', {mipmaps = false})
 }
+
+Images.tilesBump:setFilter("nearest", "linear");
+--Images.tilesBump:setMipmapFilter("linear");
+
 Images.tiles:setFilter("nearest", "nearest");
 
 
@@ -100,6 +103,8 @@ function Voxel.newStarterGrid()
   local cubeListIndex = 0;
   
   local grassType = Voxel.BLOCK_INDEX_MAP["grass"];
+  local waterType = Voxel.BLOCK_INDEX_MAP["water"];
+  local fireType = Voxel.BLOCK_INDEX_MAP["fire"];
  local startType = Voxel.BLOCK_INDEX_MAP["start"];
   local endType = Voxel.BLOCK_INDEX_MAP["end"];
   
@@ -107,7 +112,7 @@ function Voxel.newStarterGrid()
       cubeListIndex = cubeListIndex + 1;
 
       cubeList[cubeListIndex] = {
-        center = {x - 8, 0, z - 8},
+        center = {x - 8, 10, z - 8},
         type = grassType
       };
       
@@ -116,13 +121,13 @@ function Voxel.newStarterGrid()
   cubeListIndex = cubeListIndex + 1;
   
   cubeList[cubeListIndex] = {
-    center = {0, 1, -5},
+    center = {0, 11, -5},
     type = startType
   };
   
   cubeListIndex = cubeListIndex + 1;
   cubeList[cubeListIndex] = {
-    center = {3, 1, 5},
+    center = {3, 11, 5},
     type = endType;
   }
   
@@ -141,17 +146,134 @@ function Voxel.newStarterGrid()
 
   end
   
+  for i = 1, cubeListIndex do
+  
+    local center = cubeList[i].center;
+    local x, y, z = center[1], center[2] + 1, center[3] + 4;
+    Matrix.insert(waterMatrix, {
+      type = waterType
+    }, x, y, z);
+
+  end
+  
+  
    return {
     matrices = {waterMatrix, matrix},
-    startBlock = {0, 1, -5},
-    endBlock = {3, 1, 5},
+    startBlock = {0, 11, -5},
+    endBlock = {3, 11, 5},
     matrixIndex = 2,
     matrixVoxelCount = cubeListIndex,
-    dirtyMeshes = {[1] = false, [2] = true}
+    dirtyMeshes = {[1] = true, [2] = true}
   }
 end
 
-function Voxel.newTestGrid()
+function Voxel.newPracticeGrid()
+  
+  local matrix = {};
+  local waterMatrix = {};
+  local vcount = 0;
+  
+  local startPos = {2, 20, 0};
+  --lava bridge
+  --startPos = {2, 23, 16};
+  --ice bounce
+  startPos = {2, 28, 30};
+  
+  local endPos = {2, 28, -18};
+  
+  local waterType = Voxel.BLOCK_INDEX_MAP["water"];
+  local iceType = Voxel.BLOCK_INDEX_MAP["ice"];
+  local rubberType = Voxel.BLOCK_INDEX_MAP["rubber"];
+  local grassType = Voxel.BLOCK_INDEX_MAP["grass"];
+  local woodType = Voxel.BLOCK_INDEX_MAP["wood"];
+  local brickType = Voxel.BLOCK_INDEX_MAP["brick"];
+  local startType = Voxel.BLOCK_INDEX_MAP["start"];
+  local endType = Voxel.BLOCK_INDEX_MAP["end"];
+  local fireType = Voxel.BLOCK_INDEX_MAP["fire"];
+ 
+  function addCube(x, y, z, type)
+    if (type == waterType) then
+      Matrix.insert(waterMatrix, {type = type}, x, y, z);
+    else
+      Matrix.insert(matrix, {type = type}, x, y, z);
+      vcount = vcount + 1;
+    end
+  end
+  
+  function addBox(ll, ur, type)
+    for x = ll[1], ur[1] do
+    for y = ll[2], ur[2] do
+    for z = ll[3], ur[3] do
+      addCube(x, y, z, type);
+    end end end
+  end
+  
+  
+  addBox({-2, 19, -1}, {6, 19, 20}, grassType);
+  
+  --Brick Stairs
+  addCube(2, 20, 3, brickType);
+  addBox({2, 20, 4}, {2, 21, 4}, brickType);
+  addBox({2, 20, 5}, {2, 22, 5}, brickType);
+  addBox({2, 20, 7}, {2, 22, 8}, brickType);
+  addBox({2, 20, 11}, {2, 22, 11}, brickType);
+  addBox({2, 20, 15}, {2, 22, 15}, brickType);
+  
+  
+  --Lava bridge
+  addBox({0, 21, 21}, {4, 21, 29}, fireType);
+  --addBox({2, 22, 16}, {2, 22, 30}, brickType);
+  addBox({2, 22, 19}, {2, 22, 20},  brickType);
+  addCube(0, 22, 23, brickType);
+  addCube(4, 22, 26, brickType);
+
+  --ceiling
+  addBox({-1, 26, 20}, {5, 26, 30}, brickType);
+  
+  --Steps
+  addBox({-1, 21, 20}, {-1, 25, 36}, brickType);
+  addBox({5, 21, 20}, {5, 25, 36}, brickType);
+  
+  addBox({0, 21, 20}, {4, 21, 20}, brickType);
+
+  --Water cave
+  addBox({0, 22, 31}, {4, 30, 35}, waterType);
+  --Water floor
+  addBox({0, 21, 30}, {4, 21, 36}, brickType);
+  --Back wall
+  addBox({0, 22, 36}, {4, 30, 36}, brickType);
+  
+  addBox({-1, 26, 31}, {-1, 30, 36}, brickType);
+  addBox({5, 26, 31}, {5, 30, 36}, brickType);
+  
+  --Ice Bounce
+  addBox({-1, 27, 20}, {5, 27, 30}, iceType);
+  --rubber walls
+  addBox({-1, 28, 20}, {-1, 30, 30}, rubberType);
+  addBox({5, 28, 20}, {5, 30, 30}, rubberType);
+
+  addBox({0, 27, 10}, {4, 27, 14}, rubberType);
+  addBox({-1, 27, -20}, {5, 27, -16}, brickType);
+  
+  --Bounce back
+  --addBox({0, 17, -8}, {4, 17, -4}, rubberType);
+  
+  addCube(startPos[1], startPos[2], startPos[3], startType);
+  addCube(endPos[1], endPos[2], endPos[3], endType);
+  
+  return {
+    matrices = {waterMatrix, matrix},
+    startBlock = startPos,
+    endBlock = endPos,
+    matrixIndex = 2,
+    matrixVoxelCount = vcount,
+    dirtyMeshes = {[1] = true, [2] = true}
+  }
+  
+  
+end
+
+function Voxel.newPracticeGridDEP()
   
   local cubeList = {};
   local cubeListIndex = 0;
@@ -294,7 +416,7 @@ function Voxel.traceRay(grid, ray)
     local p, n = advanceRay(t3pos, d);
     local vox = Voxel.get(grid, p.x, p.y, p.z);
     if (vox) then
-      return vox, p, n;
+      return vox, {round(p.x), round(p.y), round(p.z)},  p, n;
     end
    
   end
@@ -342,7 +464,9 @@ end
 
 function Voxel.insert(grid, voxel, x, y, z)
   
-  voxel.center = {x,y,z};
+  voxel.center = nil;
+  
+  local props = Voxel.BLOCK_PROPERTIES[Voxel.BLOCK_TYPES[voxel.type]];
   
   if (voxel.type == Voxel.BLOCK_INDEX_MAP["start"]) then
     Voxel.remove(grid, grid.startBlock[1], grid.startBlock[2], grid.startBlock[3]);
@@ -354,7 +478,7 @@ function Voxel.insert(grid, voxel, x, y, z)
     grid.endBlock = {x, y, z};
   end
   
-  if (voxel.type == Voxel.BLOCK_INDEX_MAP["water"] or voxel.type == Voxel.BLOCK_INDEX_MAP["rubber"]) then
+  if (props.transparent) then
     Matrix.insert(grid.matrices[1], voxel, x, y, z);
     grid.dirtyMeshes[1] = true;
     return;
@@ -421,7 +545,7 @@ function Matrix.intersectGridAABB(matrix, aabb, callback)
     
     local voxel = get(matrix, vx, vy, vz);
     if (voxel) then
-      callback(voxel);
+      callback(voxel, {vx, vy, vz});
     end
   end end end
 
@@ -435,6 +559,7 @@ function Voxel.intersectGridAABB(grid, aabb, callback)
 
 end
 
+
 local WATER_TYPE = Voxel.BLOCK_INDEX_MAP["water"];
 local waterPass = function(type)
   return type == WATER_TYPE;
@@ -446,6 +571,51 @@ end
 
 local allPass = function(type) return true end;
 
+
+
+function Voxel.sortWater(grid)
+  
+  if (not grid.waterMeshData or grid.waterMeshData.numCenters == 0) then
+    return;
+  end
+  
+  local pos = GFX.getCameraPosition();
+  local centers = grid.waterMeshData.centers;
+  local temp = {0,0,0};
+  
+
+  for i = 1, grid.waterMeshData.numCenters do
+    local center = centers[i].center;
+    temp[1], temp[2], temp[3] = center[1] - pos[1], center[2] - pos[2], center[3] - pos[3];
+    centers[i].distance = temp[1] * temp[1] + temp[2] * temp[2] + temp[3] * temp[3];  
+  end
+  
+  function faceSorter(a, b)
+    return a.distance > b.distance;
+  end
+  
+  table.sort(centers, faceSorter);
+  
+  local waterMesh = grid.meshes[1];
+  
+  local newVerts = grid.waterMeshData.newVerts;
+  local oldVerts = grid.waterMeshData.verts;
+  
+  for i = 1, grid.waterMeshData.numCenters do
+    local vertIndex = centers[i].vertIndex;
+    
+    for v = 1, 6 do
+        newVerts[(i-1) * 6 + v] = oldVerts[vertIndex + v - 1];
+    end
+    
+  end
+  
+  waterMesh:setVertices(newVerts, 1);
+
+end
+
+local lastSortTime = -100;
+
 function Voxel.draw(grid)
   
   grid.meshes = grid.meshes or {};
@@ -454,11 +624,32 @@ function Voxel.draw(grid)
   for i = 1, grid.matrixIndex do
     
     if (grid.dirtyMeshes[i]) then
-      grid.meshes[i] = Matrix.makeMesh(grid.matrices[i], allPass);
-      if (grid.meshes[i]) then
-        grid.meshes[i]:setTexture(Images.tiles);
-      end
-      
+       if (i == 1) then
+          
+        local verts, centers, numCenters;
+        grid.meshes[i], verts, centers, numCenters = Matrix.makeMesh(grid.matrices[i], allPass, "static");  
+        
+        if (grid.meshes[i]) then
+          grid.waterMeshData = {
+            centers = centers,
+            numCenters = numCenters,
+            verts = verts,
+            newVerts = {}
+          }
+          
+          Voxel.sortWater(grid);
+       end
+                
+       else
+          
+          grid.meshes[i] = Matrix.makeMesh(grid.matrices[i], allPass);  
+    
+          if (grid.meshes[i]) then
+            grid.meshes[i]:setTexture(Images.tiles); 
+          end
+          
+       end
+       
       grid.dirtyMeshes[i] = nil;
     end
   
@@ -466,21 +657,90 @@ function Voxel.draw(grid)
   
   
   for i = 2,grid.matrixIndex do
+    GFX.setUniform("bumpTex", Images.tilesBump);
     GFX.drawMesh(grid.meshes[i]);  
   end
 
+  local now = love.timer.getTime();
+  
+  if (now - lastSortTime > 1.0) then
+    Voxel.sortWater(grid);
+    --print("sorting water");
+    lastSortTime = now;
+  end
+  
+  --local endt = love.timer.getTime();
+  
+  --print(1000 * (endt - now));
   
   local waterMesh = grid.meshes[1];
-  
   GFX.setShader(Shaders.WaterTiles);
-
   love.graphics.setBlendMode("alpha");
-  love.graphics.setMeshCullMode("front");
+  love.graphics.setMeshCullMode("none");
   GFX.setUniform("waterTile", true);
   GFX.drawMesh(waterMesh);  
-  love.graphics.setMeshCullMode("back");
-  GFX.drawMesh(waterMesh);  
-  GFX.setUniform("waterTile", false);
+
+  
+end
+
+function Matrix.unpostify(safeMatrix)
+  
+  local matrix = {};
+
+  for x in pairs(safeMatrix) do
+  for y in pairs(safeMatrix[x]) do
+  for z, cube in pairs(safeMatrix[x][y]) do
+    Matrix.insert(matrix, cube, tonumber(x), tonumber(y), tonumber(z));
+  end end end
+  
+  return matrix;
+end
+
+function Voxel.unpostify(grid)
+  
+  for i, matrix in pairs(grid.matrices) do
+    
+    grid.matrices[i] = Matrix.unpostify(matrix);
+  
+  end
+
+  return grid;
+  
+end
+
+function Matrix.postify(matrix)
+  
+  local safeMatrix = {};
+  for x in pairs(matrix) do
+    local xs = tostring(x);
+    safeMatrix[xs] = {};
+  for y in pairs(matrix[x]) do
+    local ys = tostring(y);
+    safeMatrix[xs][ys] = {};
+  for z, cube in pairs(matrix[x][y]) do
+     safeMatrix[xs][ys][tostring(z)] = cube
+  end end end
+  
+  return safeMatrix;
+
+end
+
+function Voxel.postify(grid)
+  
+ local safeGrid = {};
+  
+  for k, v in pairs(grid) do
+    safeGrid[k] = v;
+  end
+  
+  safeGrid.meshes = nil;
+  safeGrid.matrices = {};
+  
+  for i, matrix in pairs(grid.matrices) do
+    safeGrid.matrices[i] = Matrix.postify(matrix);
+  end
+  
+  return safeGrid;
 
 end
 
@@ -492,15 +752,15 @@ function Voxel.reload(grid)
 
 end
 
-Matrix.makeMesh = function(matrix, typePass, faceMap)
+Matrix.makeMesh = function(matrix, typePass, batchMode)
   
-  faceMap = faceMap or {};
+  local faceMap =  {};
   
   local checkMap = function(h, o)
     if (faceMap[h]) then
       faceMap[h] = nil;
     else
-      faceMap[h] = o;
+      faceMap[h] = o
     end
   end
  
@@ -513,7 +773,7 @@ Matrix.makeMesh = function(matrix, typePass, faceMap)
       
       local properties = Voxel.BLOCK_PROPERTIES[Voxel.BLOCK_TYPES[cube.type]];
 
-      local center = cube.center;
+      local center = {x, y, z};
       local color = cube.color or properties.color or {1,1,1,1};
       local x, y, z = center[1], center[2], center[3];
       local halfSize = 0.5;
@@ -534,25 +794,37 @@ Matrix.makeMesh = function(matrix, typePass, faceMap)
       
       local ou, ov = properties.offset[1], properties.offset[2];
       
-      checkMap(tostring(x).."+_"..y.."_"..z, {e, a, d, h, ou, ov, color});
-      checkMap(tostring(x-1).."+_"..y.."_"..z, {b, f, g, c, ou, ov, color});
+      checkMap(tostring(x).."+_"..y.."_"..z, {e, a, d, h, ou, ov, 0});
+      checkMap(tostring(x-1).."+_"..y.."_"..z, {b, f, g, c, ou, ov, 1});
       
-      checkMap(tostring(x).."_"..tostring(y-1).."+_"..z, {e, f, b, a, ou, ov, color});
-      checkMap(tostring(x).."_"..tostring(y).."+_"..z, {d, c, g, h, ou, ov, color});
+      checkMap(tostring(x).."_"..tostring(y-1).."+_"..z, {e, f, b, a, ou, ov, 2});
+      checkMap(tostring(x).."_"..tostring(y).."+_"..z, {d, c, g, h, ou, ov, 3});
       
-      checkMap(tostring(x).."_"..tostring(y).."_"..tostring(z-1).."+", {a, b, c, d, ou, ov, color});
-      checkMap(tostring(x).."_"..tostring(y).."_"..tostring(z).."+", {f, e, h, g, ou, ov, color});
+      checkMap(tostring(x).."_"..tostring(y).."_"..tostring(z-1).."+", {a, b, c, d, ou, ov, 4});
+      checkMap(tostring(x).."_"..tostring(y).."_"..tostring(z).."+", {f, e, h, g, ou, ov, 5});
     end
   end end end
   
   local verts = {};
+  local centerMap = {};
   local index = 1;
+  local centerIndex = 1;
   local mcf = Mesh.makeCubeFace;
   
-  for f, o in pairs(faceMap) do
+  for hash, o in pairs(faceMap) do
     if (o) then
       local face = mcf(o[1], o[2], o[3], o[4], o[5], o[6], o[7]);
-       for v = 1, 6 do
+      
+      local a, b = o[1], o[3];
+      
+      centerMap[centerIndex] = {
+        center = {(a[1] + b[1]) * 0.5, (a[2] + b[2]) * 0.5, (a[3] + b[3]) * 0.5},
+        vertIndex = index
+      }      
+      
+      centerIndex = centerIndex + 1;
+      
+      for v = 1, 6 do
         verts[index] = face[v]; 
         index = index + 1;
       end     
@@ -564,8 +836,8 @@ Matrix.makeMesh = function(matrix, typePass, faceMap)
   end
   
   return love.graphics.newMesh(
-      BASIC_ATTRIBUTES, verts, "triangles", "static"
-    ), faceMap;
+      BASIC_ATTRIBUTES, verts, "triangles", batchMode or "static"
+    ), verts, centerMap, centerIndex-1;
 end
 
 return Voxel;

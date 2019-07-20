@@ -2,12 +2,13 @@ local MeshUtil = {};
 
 POSITION_ATTRIBUTE = {"VertexPosition", "float", 3};
 UV_ATTRIBUTE = {"VertexTexCoord", "float", 2};
-COLOR_ATTRIBUTE = {"VertexColor", "float", 4};
+--COLOR_ATTRIBUTE = {"VertexColor", "float", 4};
+FACE_INDEX_ATTRIBUTE = {"FaceIndex", "float", 1};
 
 BASIC_ATTRIBUTES = {
   POSITION_ATTRIBUTE,
   UV_ATTRIBUTE,
-  COLOR_ATTRIBUTE
+  FACE_INDEX_ATTRIBUTE
 }
 
 
@@ -70,12 +71,12 @@ end)(1,1);
 
 
 
-MeshUtil.makeCubeFace = function(a, b, c, d, ou, ov, clr)
+MeshUtil.makeCubeFace = function(a, b, c, d, ou, ov, faceIndex)
   
   ou = ou or 0;
   ov = ov or 0;
-  clr = clr or {1,1,1,1};
-  
+  --clr = clr or {1,1,1,1};
+  --[[
   return {
     {a[1], a[2], a[3], 0 + ou, 1 + ov, clr[1], clr[2], clr[3], clr[4]},
     {b[1], b[2], b[3], 1 + ou, 1 + ov, clr[1], clr[2], clr[3], clr[4]},
@@ -85,7 +86,17 @@ MeshUtil.makeCubeFace = function(a, b, c, d, ou, ov, clr)
     {c[1], c[2], c[3], 1 + ou, 0 + ov, clr[1], clr[2], clr[3], clr[4]},
     {d[1], d[2], d[3], 0 + ou, 0 + ov, clr[1], clr[2], clr[3], clr[4]}
   };
-
+  ]]
+  
+ return {
+    {a[1], a[2], a[3], 0 + ou, 1 + ov, faceIndex},
+    {b[1], b[2], b[3], 1 + ou, 1 + ov, faceIndex},
+    {c[1], c[2], c[3], 1 + ou, 0 + ov, faceIndex},
+    
+    {a[1], a[2], a[3], 0 + ou, 1 + ov, faceIndex},
+    {c[1], c[2], c[3], 1 + ou, 0 + ov, faceIndex},
+    {d[1], d[2], d[3], 0 + ou, 0 + ov, faceIndex}
+  };
 end
 
 MeshUtil.Cube = (function()

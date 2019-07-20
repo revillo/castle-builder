@@ -77,6 +77,7 @@ function viewLook(out, eye, look_at, up)
 
   return out
 end
+local startTime = love.timer.getTime();
 
 function setUniform(name, ...)
   if (activeShader:hasUniform(name)) then
@@ -126,6 +127,12 @@ return {
     
   end,
   
+  getCameraPosition = function()
+  
+    return {cameraMatrix[13], cameraMatrix[14], cameraMatrix[15]};
+    
+  end,
+  
   setCameraPerspective = function(fovy, aspect, near, far)
       
     projectionMatrix = mat4.from_perspective(fovy, aspect, near, far);
@@ -162,7 +169,7 @@ return {
     
     setUniform("model", modelMatrix);
     setUniform("view", viewMatrix);
-    setUniform("time", love.timer.getTime());
+    setUniform("time", love.timer.getTime() - startTime);
     setUniform("cameraPos", {cameraMatrix[13], cameraMatrix[14], cameraMatrix[15]});
     
     mv:mul(modelMatrix, viewMatrix);

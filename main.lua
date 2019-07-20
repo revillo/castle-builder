@@ -1,4 +1,24 @@
 --castle://localhost:4000/main.lua
+local PostVersion = 2;
+
+if CASTLE_PREFETCH then
+    CASTLE_PREFETCH({
+        'lib/list.lua',
+        'lib/cpml/modules/vec3.lua',
+        'lib/cpml/modules/vec2.lua',
+        'lib/cpml/modules/utils.lua',
+        'lib/cpml/modules/mat4.lua',
+        'lib/cpml/modules/quat.lua',
+        'lib/cpml/modules/constants.lua',
+        'lib/cpml/init.lua',
+        'tiles.png',
+        'shaders.lua',
+        'gfx3D.lua',
+        'voxel.lua',
+        'mesh_util.lua',
+    })
+end
+
 
 local client = love;
 GFX = require("gfx3D");
@@ -60,13 +80,17 @@ local Editor = {
   voxelColor = {1,1,1},
   tool = "add",
   isActive = true,
-  gravity = true
+  gravity = true,
+  mouseCamera = false,
+  loadLevelName = "starter"
 };
 
 function teleportPlayer(player, x, y, z)
     player.position:set(x,y,z);
     player.velocity:set(0,0,0);
     player.camera.position = player.position + player.headOffset;
+    player.rotationX = 0;
+    player.rotationY = 0;
 end
 
 function teleportPlayerToStart(player)
@@ -103,14 +127,29 @@ function Editor.uiupdate()
     
     if (playLevelBtn) then
       --setMouseControlCamera(true);
-      state.playLevelPressed = true;
+      state.mouseCameraPressed = true;
       teleportPlayerToStart(Player1);
       Editor.isActive = false;
     end
-    
-    if (postLevel) then
+  
+    ui.section("Change Level", {
+      defaultOpen = false,
+    }, function()
       
-    end
+      Editor.loadLevelName = ui.dropdown("Select Level", Editor.loadLevelName, {"starter", "practice"}, {
+        
+        onChange = function(level)
+          if (level == "starter") then
+            loadLevel({grid = Voxel.newStarterGrid()});
+          else
+            loadLevel({grid = Voxel.newPracticeGrid()});
+          end
+        end
+      
+      });
+    
+    end);
+    
     
     ui.section("Edit Voxels", {
       defaultOpen = true,
@@ -155,10 +194,8 @@ function Editor.uiupdate()
         
       
       if (Editor.selection) then
-        
         local c = Editor.selection.center;
         ui.markdown("x="..c[1].." y="..c[2].." z="..c[3]);
-        
       end
     
     end);
@@ -168,6 +205,17 @@ function Editor.uiupdate()
     }, function()
       
       Editor.gravity = ui.checkbox("Gravity", Editor.gravity);
+      Editor.mouseCamera = ui.checkbox("Mouse", Editor.mouseCamera, {
+        onChange = function(toggle)
+        
+          if (toggle) then
+            state.mouseCameraPressed = true;
+          else
+            setMouseControlCamera(false);
+          end
+        
+        end
+      });
       
       end);
     
@@ -187,8 +235,8 @@ end
 
 function Editor.mousepressed(x, y, button)
 
-  if (state.playLevelPressed) then
-    state.playLevelPressed = false;
+  if (state.mouseCameraPressed) then
+    state.mouseCameraPressed = false;
     setMouseControlCamera(true);
   end
   
@@ -199,11 +247,10 @@ function Editor.mousepressed(x, y, button)
   local w, h = love.graphics.getDimensions();
   local mx, my = love.mouse.getPosition();
   local ray = GFX.pickRay(mx / w, my / h);
-  local vox, pos, normal = Voxel.traceRay(state.grid, ray);
+  local vox, c, pos, normal = Voxel.traceRay(state.grid, ray);
   local round = cpml.utils.round;
   
   if (vox) then
-    local c = vox.center;
 
     if (Editor.tool == "select") then
       
@@ -362,17 +409,18 @@ function PostProcess.playFireOverlay()
   PostProcess.startTime = love.timer.getTime();
   PostProcess.duration = 4;
   PostProcess.startAlpha = 1.0;
+  PostProcess.text = "Ouch!";
 
 end
 
 function PostProcess.playWinOverlay()
 
   PostProcess.effect = "fadeIn";
-  PostProcess.color = {1, 0.7, 0.5, 1.0};
+  PostProcess.color = {0.0, 0.0, 0.0, 1.0};
   PostProcess.startTime = love.timer.getTime();
   PostProcess.duration = 4;
   PostProcess.startAlpha = 0.5;
-  PostProcess.text = "Win";
+  PostProcess.text = "Win!!";
   
 end
 
@@ -412,10 +460,8 @@ function collidePlayer(player, dt, collisionData)
   local waterType = Voxel.BLOCK_INDEX_MAP["water"];
   local endType = Voxel.BLOCK_INDEX_MAP["end"];
   
-  Voxel.intersectGridAABB(state.grid, epbb, function(v)
-    
-    local c = v.center;
-    
+  Voxel.intersectGridAABB(state.grid, epbb, function(v, c)
+        
     local vbb = {
       ll = {c[1] - 0.5, c[2] - 0.5, c[3] - 0.5},
       ur = {c[1] + 0.5, c[2] + 0.5, c[3] + 0.5}
@@ -752,7 +798,11 @@ end
 
 function client.resize()
   local w, h = love.graphics.getDimensions();
-  state.canvas3D = GFX.createCanvas3D(w, h);
+  
+  state.canvas3D = GFX.createCanvas3D(w, h, {
+    dpiscale = love.window.getDPIScale() * 2
+  });
+  
 end
 
 function client.draw()
@@ -771,7 +821,7 @@ end
 function client.load()
   love.resize();
   
-  state.grid = Voxel.newStarterGrid();
+  state.grid = Voxel.newPracticeGrid();
   teleportPlayerToStart(Player1);
   
 end
@@ -779,29 +829,35 @@ end
 
 function castle.postopened(post)
   
-    loadPost(post.data);
-
+  local version = post.data.version;
+  
+  if (version < 2) then
+    loadLevel({grid = Voxel.newStarterGrid()});
+  else
+    loadLevel({grid = Voxel.unpostify(post.data.grid)});
+  end
+  
+  Editor.isActive = false;
+  state.mouseCameraPressed = true;
+  
 end
 
-function loadPost(data)
-
-  state.grid = data.grid;
+function loadLevel(level)
+  
+  state.grid = level.grid;
   Voxel.reload(state.grid);
+  teleportPlayerToStart(Player1);
 
 end
+
 
 function postLevel()
   
-  local safeGrid = {};
+ 
+  local data = {};
+  data.grid = Voxel.postify(state.grid);
+  data.version = PostVersion;
   
-  for k, v in pairs(state.grid) do
-    safeGrid[k] = v;
-  end
-  
-  safeGrid.meshes = nil;
-  
-  data.grid = safeGrid;
-
   network.async(function()
     castle.post.create {
         message = 'Level 1',
