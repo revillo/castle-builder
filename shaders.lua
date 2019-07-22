@@ -185,9 +185,9 @@ local Shaders = {
         //uniform float time;
         extern Image bumpTex;
         
-        vec2 parallax(vec2 texCoords, vec3 viewDir)
+        vec2 parallax(vec2 texCoords, vec3 viewDir, Image tex)
         { 
-            float height = length(Texel(bumpTex, texCoords).rgb);    
+            float height = length(Texel(tex, texCoords).rgb);    
             vec2 p = vec2(viewDir.x, viewDir.y) / viewDir.z * (height * 0.001);
             return texCoords - p;    
         } 
@@ -257,10 +257,9 @@ local Shaders = {
           bool fire = texture_coords.x > 7.0;
           
           if (!fire) {
-            //vec3 normal = -normalize(cross(dFdx(worldPos), dFdy(worldPos)));
             tc = texture_coords / 8.0;
             
-            //tc = parallax(tc, normalize(tanCameraPos - tanFragPos));
+            //tc = parallax(tc, normalize(tanCameraPos - tanFragPos), bumpTex);
 
             tex = Texel(texture, tc);
             bump = length(Texel(bumpTex, tc).rgb);
@@ -268,15 +267,11 @@ local Shaders = {
           
             tc = vec2(mod(texture_coords.x + time, 1.0) + 7.0, texture_coords.y);  
             tc = tc / 8.0;
-            //tex = Texel(texture, tc);
-            
-            //bump = 1.0 - length(Texel(bumpTex, tc).rgb);
+
             bump = fireNoise(worldPos * 0.5) - 0.0;
             if (bump > 0.0) {
-            
               bump = pow(bump, 0.5);
               tex.rgb = mix( vec3(1.0, 0.4, 0.1), vec3(0.4, 0.2, 0.1), bump ); 
-              //bump += 0.2;
             }
 
             if (bump < 0.0) {
@@ -288,8 +283,6 @@ local Shaders = {
             }
           }
             vec3 cameraRay = normalize(worldPos - cameraPos);
-
-            //tex.rgb *= color.rgb;
             
             vec3 wPos = worldPos + normal * bump * 0.05;
             vec3 normalBump = -normalize(cross(dFdx(wPos), dFdy(wPos)));
@@ -307,19 +300,10 @@ local Shaders = {
             if (fire) {
                 spec = pow(spec, 40.0) * 0.5;
                 diffuse = 1.0;
-                //tex.rgb += Texel(bumpTex, tc).rgb * vec3(1.0, 0.5, 0.5);
             }
             
             return vec4(tex.rgb * diffuse + vec3(spec * 0.3), 1.0);
            
-            
-            //return vec4(normal * 0.5 + vec3(0.5), 1.0);
-            
-            //Lava exception
-          
-          /*} else {
-           
-          }*/
           
           tex.a = color.a;
  	          

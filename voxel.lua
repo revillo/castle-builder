@@ -6,7 +6,11 @@ local Matrix = {};
 local MATRIX_MAX_COUNT = 256;
 
 Voxel.BLOCK_TYPES = {
-  "start", "end", "wood", "brick", "ice", "rubber", "fire", "water", "grass"
+  "start", "end", "wood", "brick", "ice", "rubber", "lava", "water", "tile", "info", "leaves", "stone"
+}
+
+Voxel.LEVELS = {
+  "practice0", "practice1", "practice2"
 }
 
 Voxel.BLOCK_PROPERTIES = {
@@ -16,7 +20,15 @@ Voxel.BLOCK_PROPERTIES = {
   },
   
   ["end"] = {
-    offset = {4, 0}
+    offset = {4, 0},
+    collide = function(collisionData, voxel) 
+      collisionData.finish = true;
+      collisionData.nextLevel = voxel.nextLevel;
+    end,
+    
+    uiupdate = function(voxel)
+      voxel.nextLevel = ui.textInput("Next Level", voxel.nextLevel or "");
+    end
   },
   
   wood = {
@@ -27,13 +39,13 @@ Voxel.BLOCK_PROPERTIES = {
     offset = {2, 0}
   },
   
-  grass  = {
+  tile = {
     offset = {3, 1}
   },
   
   rubber = {
     offset = {0, 8},
-    bounciness = 10,
+    bounciness = 1,
   },
   
   ice = {
@@ -41,17 +53,65 @@ Voxel.BLOCK_PROPERTIES = {
     friction = 0.1
   },
   
-  fire = {
-    offset = {7, 0}
+  lava = {
+    offset = {7, 0},
+    collide = function(collisionData, voxel, pbb, vbb)
+      if (Voxel.overlapAABBs(pbb, vbb) > 0.1) then
+        collisionData.fire = true;
+      end
+    end,
+    fluid = true
   },
   
   water = {
     offset = {0, 1},
     color = {0, 1, 1, 0.7},
-    transparent = true;
-  }
+    collide = function(collisionData) 
+      collisionData.water = true;
+    end,
+    transparent = true,
+    fluid = true
+  },
+  
+  leaves = {
+    
+    offset = {2,2}
+  
+  },
+  
+  
+  stone = {
+    
+    offset = {4,2}
+  
+  },
+  
+  info = {
+    offset = {0, 2},
+    nearby = function(collisionData, voxel, pbb, vbb)
+        
+      if (Voxel.intersectAABBs(pbb, Voxel.expandAABB(vbb, {0.1, 0.1, 0.1}))) then
+        collisionData.info = voxel.msg or "...";
+      end
+      
+    end,
+    
+    uiupdate = function(voxel)
+    
+      voxel.msg = ui.textArea("Message", voxel.msg or "...", {
+        rows = 4
+      })
+
+    end
+  },
 
 }
+
+function Voxel.getPropertyForType(typeIndex)
+  return Voxel.BLOCK_PROPERTIES[Voxel.BLOCK_TYPES[typeIndex]];
+end
+
+
 
 Voxel.BLOCK_INDEX_MAP = {}
 
@@ -102,10 +162,11 @@ function Voxel.newStarterGrid()
   local cubeList = {};
   local cubeListIndex = 0;
   
-  local grassType = Voxel.BLOCK_INDEX_MAP["grass"];
+  local tileType = Voxel.BLOCK_INDEX_MAP["tile"];
   local waterType = Voxel.BLOCK_INDEX_MAP["water"];
-  local fireType = Voxel.BLOCK_INDEX_MAP["fire"];
+  local lavaType = Voxel.BLOCK_INDEX_MAP["lava"];
  local startType = Voxel.BLOCK_INDEX_MAP["start"];
+  local infoType = Voxel.BLOCK_INDEX_MAP["info"];
   local endType = Voxel.BLOCK_INDEX_MAP["end"];
   
   for x = 1, 16 do for z = 1, 16 do
@@ -113,7 +174,7 @@ function Voxel.newStarterGrid()
 
       cubeList[cubeListIndex] = {
         center = {x - 8, 10, z - 8},
-        type = grassType
+        type = tileType
       };
       
   end end
@@ -128,9 +189,61 @@ function Voxel.newStarterGrid()
   cubeListIndex = cubeListIndex + 1;
   cubeList[cubeListIndex] = {
     center = {3, 11, 5},
-    type = endType;
+    type = endType,
+    nextLevel = "practice1"
   }
   
+  cubeListIndex = cubeListIndex + 1;
+  cubeList[cubeListIndex] = {
+    type = infoType,
+    msg = [[Welcome to <1.0,0.6,0.3>Verticube<1,1,1>! 
+
+Use <1.0,0.6,0.3>WASD<1,1,1> to move. 
+
+Use the <1.0,0.6,0.3>MOUSE<1,1,1> or <1.0,0.6,0.3>ARROW KEYS<1,1,1> to look around.
+
+Press <1.0,0.6,0.3>SPACE<1,1,1> to jump.]],
+
+    center = {0, 11, -4};
+  }
+  
+  cubeListIndex = cubeListIndex + 1;
+  cubeList[cubeListIndex] = {
+    type = infoType,
+    msg = [[The goal is to get from the <1,1,0>START<1,1,1> block to the <1,0,0>END<1,1,1> block without dying.
+    
+Different block types have effects that can hinder or aid your journey, like rubber, ice, water, lava, etc...]],
+
+    center = {0, 11, -2};
+  }
+  
+   cubeListIndex = cubeListIndex + 1;
+   cubeList[cubeListIndex] = {
+    type = infoType,
+    msg = [[In <1.0,0.6,0.3>EDIT MODE<1,1,1>, you can add, remove and modify blocks in the scene using the buttons on the right.
+
+You can create your own levels and post them to <0.5,0.5,0.5>Castle<1,1,1> for others to play!]],
+
+    center = {0, 11, 0};
+  }
+  
+   cubeListIndex = cubeListIndex + 1;
+   cubeList[cubeListIndex] = {
+    type = infoType,
+    msg = [[Touch the <1,0,0>END BLOCK<1,1,1> to advance to the next practice level. 
+    
+Each of these levels can be completed without needing to modify the blocks. (But don't let that stop you!)]],
+
+    center = {0, 11, 2};
+  }
+  
+    cubeListIndex = cubeListIndex + 1;
+   cubeList[cubeListIndex] = {
+    type = infoType,
+    msg = [[Good Luck!]],
+
+    center = {0, 11, 4};
+  }
   
  local waterMatrix = {};
    
@@ -142,20 +255,22 @@ function Voxel.newStarterGrid()
   
     local center = cubeList[i].center;
     local x, y, z = center[1], center[2], center[3];
+    cubeList[i].center = nil;
     Matrix.insert(matrix, cubeList[i], x, y, z);
 
   end
   
+  --[[
   for i = 1, cubeListIndex do
   
     local center = cubeList[i].center;
-    local x, y, z = center[1], center[2] + 1, center[3] + 4;
+    local x, y, z = center[1], center[2] + 1, center[3] + 10;
     Matrix.insert(waterMatrix, {
       type = waterType
     }, x, y, z);
 
   end
-  
+  ]]
   
    return {
     matrices = {waterMatrix, matrix},
@@ -163,7 +278,7 @@ function Voxel.newStarterGrid()
     endBlock = {3, 11, 5},
     matrixIndex = 2,
     matrixVoxelCount = cubeListIndex,
-    dirtyMeshes = {[1] = true, [2] = true}
+    dirtyMeshes = {[1] = false, [2] = true}
   }
 end
 
@@ -177,25 +292,29 @@ function Voxel.newPracticeGrid()
   --lava bridge
   --startPos = {2, 23, 16};
   --ice bounce
-  startPos = {2, 28, 30};
+  --startPos = {2, 28, 30};
   
   local endPos = {2, 28, -18};
   
   local waterType = Voxel.BLOCK_INDEX_MAP["water"];
   local iceType = Voxel.BLOCK_INDEX_MAP["ice"];
   local rubberType = Voxel.BLOCK_INDEX_MAP["rubber"];
-  local grassType = Voxel.BLOCK_INDEX_MAP["grass"];
+  local tileType = Voxel.BLOCK_INDEX_MAP["tile"];
   local woodType = Voxel.BLOCK_INDEX_MAP["wood"];
   local brickType = Voxel.BLOCK_INDEX_MAP["brick"];
   local startType = Voxel.BLOCK_INDEX_MAP["start"];
   local endType = Voxel.BLOCK_INDEX_MAP["end"];
-  local fireType = Voxel.BLOCK_INDEX_MAP["fire"];
+  local lavaType = Voxel.BLOCK_INDEX_MAP["lava"];
+  local infoType = Voxel.BLOCK_INDEX_MAP["info"];
  
-  function addCube(x, y, z, type)
+  function addCube(x, y, z, type, voxel)
+    voxel = voxel or {type = type};
+    voxel.type = type;
+    
     if (type == waterType) then
-      Matrix.insert(waterMatrix, {type = type}, x, y, z);
+      Matrix.insert(waterMatrix, voxel, x, y, z);
     else
-      Matrix.insert(matrix, {type = type}, x, y, z);
+      Matrix.insert(matrix, voxel, x, y, z);
       vcount = vcount + 1;
     end
   end
@@ -209,7 +328,7 @@ function Voxel.newPracticeGrid()
   end
   
   
-  addBox({-2, 19, -1}, {6, 19, 20}, grassType);
+  addBox({-2, 19, -1}, {6, 19, 20}, tileType);
   
   --Brick Stairs
   addCube(2, 20, 3, brickType);
@@ -221,9 +340,12 @@ function Voxel.newPracticeGrid()
   
   
   --Lava bridge
-  addBox({0, 21, 21}, {4, 21, 29}, fireType);
+  addBox({0, 21, 21}, {4, 21, 29}, lavaType);
   --addBox({2, 22, 16}, {2, 22, 30}, brickType);
   addBox({2, 22, 19}, {2, 22, 20},  brickType);
+  addCube(3, 22, 20, infoType, {
+  msg = [[If you fall into <1.0,0.4,0>lava BLOCKS<1,1,1> you'll have to start over!]]
+  });
   addCube(0, 22, 23, brickType);
   addCube(4, 22, 26, brickType);
 
@@ -254,10 +376,18 @@ function Voxel.newPracticeGrid()
 
   addBox({0, 27, 10}, {4, 27, 14}, rubberType);
   addBox({-1, 27, -20}, {5, 27, -16}, brickType);
+  addBox({-1, 27, -21}, {5, 29, -21}, brickType);
   
   --Bounce back
   --addBox({0, 17, -8}, {4, 17, -4}, rubberType);
   
+  addCube(4, 28, 28, infoType, {
+    msg = [[<0.8, 0.8, 1>ICE BLOCKS<1,1,1> are slippery! Slide across them to build up speed.
+
+Hold <1,0.6,0.3>SPACE<1,1,1> when falling on a <1,0,0.7>RUBBER BLOCK<1,1,1> to bounce extra high!
+
+Try to reach the <1,0,0>END BLOCK<1,1,1>!]]
+  });
   addCube(startPos[1], startPos[2], startPos[3], startType);
   addCube(endPos[1], endPos[2], endPos[3], endType);
   
@@ -268,8 +398,7 @@ function Voxel.newPracticeGrid()
     matrixIndex = 2,
     matrixVoxelCount = vcount,
     dirtyMeshes = {[1] = true, [2] = true}
-  }
-  
+  } 
   
 end
 
@@ -277,7 +406,7 @@ function Voxel.newPracticeGridDEP()
   
   local cubeList = {};
   local cubeListIndex = 0;
-  local grassType = Voxel.BLOCK_INDEX_MAP["grass"];
+  local tileType = Voxel.BLOCK_INDEX_MAP["tile"];
   local brickType = Voxel.BLOCK_INDEX_MAP["brick"];
   local startType = Voxel.BLOCK_INDEX_MAP["start"];
   local endType = Voxel.BLOCK_INDEX_MAP["end"];
@@ -289,7 +418,7 @@ function Voxel.newPracticeGridDEP()
 
       cubeList[cubeListIndex] = {
         center = {x - 8, 0, z - 8},
-        type = grassType
+        type = tileType
       };
       
   end end
@@ -431,7 +560,7 @@ function Voxel.isSolid(grid, x, y, z)
 
    local vox = Voxel.get(grid, x, y, z)
    
-   return vox and Voxel.BLOCK_TYPES[vox.type] ~= "water" and Voxel.BLOCK_TYPES[vox.type] ~= "fire";
+   return vox and Voxel.BLOCK_TYPES[vox.type] ~= "water" and Voxel.BLOCK_TYPES[vox.type] ~= "lava";
   
 end
 
@@ -690,7 +819,12 @@ function Matrix.unpostify(safeMatrix)
   for x in pairs(safeMatrix) do
   for y in pairs(safeMatrix[x]) do
   for z, cube in pairs(safeMatrix[x][y]) do
-    Matrix.insert(matrix, cube, tonumber(x), tonumber(y), tonumber(z));
+    
+    if (type(cube) == "number") then
+      Matrix.insert(matrix, {type=cube}, tonumber(x), tonumber(y), tonumber(z));
+    else   
+      Matrix.insert(matrix, cube, tonumber(x), tonumber(y), tonumber(z));
+    end
   end end end
   
   return matrix;
@@ -718,7 +852,17 @@ function Matrix.postify(matrix)
     local ys = tostring(y);
     safeMatrix[xs][ys] = {};
   for z, cube in pairs(matrix[x][y]) do
-     safeMatrix[xs][ys][tostring(z)] = cube
+  
+    local keycount = 0;
+    for k,v in pairs(cube) do
+      keycount = keycount + 1;
+    end
+    
+    if (keycount == 1) then
+     safeMatrix[xs][ys][tostring(z)] = cube.type;
+    else
+     safeMatrix[xs][ys][tostring(z)] = cube;
+    end 
   end end end
   
   return safeMatrix;
@@ -740,8 +884,28 @@ function Voxel.postify(grid)
     safeGrid.matrices[i] = Matrix.postify(matrix);
   end
   
+  safeGrid.waterMeshData = nil;
+  
   return safeGrid;
 
+end
+
+function Voxel.expandAABB(aabb, amounts)
+  
+  return {
+    ll = {aabb.ll[1] - amounts[1], aabb.ll[2] - amounts[2], aabb.ll[3] - amounts[3]},
+    ur = {aabb.ur[1] + amounts[1], aabb.ur[2] + amounts[2], aabb.ur[3] + amounts[3]}
+  };
+
+end
+
+function Voxel.makeAABB(center, extents)
+  
+  return {
+    ll = {center[1] - extents[1], center[2] - extents[2], center[3] - extents[3]},
+    ur = {center[1] + extents[1], center[2] + extents[2], center[3] + extents[3]}
+  }
+  
 end
 
 function Voxel.reload(grid)
@@ -771,7 +935,7 @@ Matrix.makeMesh = function(matrix, typePass, batchMode)
     
     if (cube and typePass(cube.type)) then
       
-      local properties = Voxel.BLOCK_PROPERTIES[Voxel.BLOCK_TYPES[cube.type]];
+      local properties = Voxel.getPropertyForType(cube.type);
 
       local center = {x, y, z};
       local color = cube.color or properties.color or {1,1,1,1};

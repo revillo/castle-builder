@@ -1,5 +1,6 @@
 --castle://localhost:4000/main.lua
-local PostVersion = 2;
+local PostVersion = 3;
+DEVELOPER_MODE = true;
 
 if CASTLE_PREFETCH then
     CASTLE_PREFETCH({
@@ -25,11 +26,14 @@ GFX = require("gfx3D");
 cpml = GFX.cpml;
 Mesh = require("mesh_util");
 Shaders = require("shaders");
-local Voxel = require("voxel");
+Voxel = require("voxel");
+
+cjson = require("cjson");
+
 local mat4 = cpml.mat4;
 local vec3 = cpml.vec3;
 local vec2 = cpml.vec2;
-local ui = castle.ui;
+ui = castle.ui;
 local PLAYER_SIZE = {x = 0.3, y = 0.75, z = 0.3};
 local PLAYER_SPEED = 8;
 local WORLD_Y_MIN = -10;
@@ -38,10 +42,10 @@ local cos = math.cos;
 local sin = math.sin;
 
 local UP = vec3(0.0, 1.0, 0.0);
-local CAMERA_NEAR_CLIP = 0.1;
+local CAMERA_NEAR_CLIP = 0.01;
 local CAMERA_FAR_CLIP = 100.0;
 local GRAVITY = UP * -15;
-local WATER_GRAVITY = UP * -1;
+local WATER_GRAVITY = UP * -3;
 local WATER_DAMPING = 3;
 local JUMP = UP * 6.4;
 local MAX_BOUNCE = 10;
@@ -72,17 +76,18 @@ local Player1 = {
 
 
 local TOOLS = {
-  "add", "select", "remove"
+  "add/remove", "select"
 }
 
 local Editor = {
   voxelType = "wood",
   voxelColor = {1,1,1},
-  tool = "add",
+  tool = TOOLS[1],
   isActive = true,
   gravity = true,
   mouseCamera = false,
-  loadLevelName = "starter"
+  loadLevelName = Voxel.LEVELS[1],
+  toolCount = 1
 };
 
 function teleportPlayer(player, x, y, z)
@@ -121,6 +126,19 @@ function Editor.uiupdate()
     playLevelBtn = ui.button("Play Level");
     postLevelBtn = ui.button("Post Level");
     
+    if (DEVELOPER_MODE) then
+      saveLevelBtn = ui.button("Save Level To File");
+      loadLevelBtn = ui.button("Load Level From File");
+    
+      if (saveLevelBtn) then
+        saveLevel("levels/last.lua");
+      end
+    
+      if (loadLevelBtn) then
+        loadLevelFromId("last");
+      end
+    end
+    
     if (postLevelBtn) then
       postLevel(state.grid);
     end
@@ -136,14 +154,10 @@ function Editor.uiupdate()
       defaultOpen = false,
     }, function()
       
-      Editor.loadLevelName = ui.dropdown("Select Level", Editor.loadLevelName, {"starter", "practice"}, {
+      Editor.loadLevelName = ui.dropdown("Select Level", Editor.loadLevelName, Voxel.LEVELS, {
         
         onChange = function(level)
-          if (level == "starter") then
-            loadLevel({grid = Voxel.newStarterGrid()});
-          else
-            loadLevel({grid = Voxel.newPracticeGrid()});
-          end
+          loadLevelFromId(level);
         end
       
       });
@@ -163,6 +177,8 @@ function Editor.uiupdate()
           end
         end      
       });
+      
+      Editor.toolCount = ui.slider("Block Multiplier", Editor.toolCount, 1, 10);
       
       Editor.voxelType = ui.dropdown("Voxel Type", Editor.voxelType, Voxel.BLOCK_TYPES, {
         
@@ -196,6 +212,12 @@ function Editor.uiupdate()
       if (Editor.selection) then
         local c = Editor.selection.center;
         ui.markdown("x="..c[1].." y="..c[2].." z="..c[3]);
+        
+        local voxel = Editor.selection.voxel;
+        local props = Voxel.getPropertyForType(voxel.type);
+        if (props.uiupdate) then
+          props.uiupdate(voxel);
+        end
       end
     
     end);
@@ -233,6 +255,40 @@ function Editor.selectVoxel(voxel, x, y, z)
 
 end
 
+
+function Editor.insertVoxel(prevCenter, normal)
+
+  local c = prevCenter;
+  local round = cpml.utils.round;
+
+  local vx, vy, vz = round(c[1] + normal.x), round(c[2] + normal.y), round(c[3] + normal.z);
+      
+    if (vy < 0) then return end;
+    
+    local oldPos = Player1.position;
+
+    local pbb = {
+      ll = {oldPos.x - PLAYER_SIZE.x, oldPos.y - PLAYER_SIZE.y, oldPos.z - PLAYER_SIZE.z},
+      ur = {oldPos.x + PLAYER_SIZE.x, oldPos.y + PLAYER_SIZE.y, oldPos.z + PLAYER_SIZE.z}
+    };
+    
+    local vbb = {
+      ll = {vx - 0.5, vy - 0.5, vz - 0.5},
+      ur = {vx + 0.5, vy + 0.5, vz + 0.5}
+    };
+    
+    if (Voxel.intersectAABBs(pbb, vbb)) then
+      return nil;
+    end
+    
+    Voxel.insert(state.grid, 
+      {
+        type = Voxel.BLOCK_INDEX_MAP[Editor.voxelType],
+        --color = Editor.voxelColor
+      }, vx, vy, vz);
+  return {vx, vy, vz};
+end
+
 function Editor.mousepressed(x, y, button)
 
   if (state.mouseCameraPressed) then
@@ -260,31 +316,15 @@ function Editor.mousepressed(x, y, button)
     end
     
     if (button == 1) then
-      local vx, vy, vz = round(c[1] + normal.x), round(c[2] + normal.y), round(c[3] + normal.z);
       
-      if (vy < 0) then return end;
-      
-      local oldPos = Player1.position;
-  
-      local pbb = {
-        ll = {oldPos.x - PLAYER_SIZE.x, oldPos.y - PLAYER_SIZE.y, oldPos.z - PLAYER_SIZE.z},
-        ur = {oldPos.x + PLAYER_SIZE.x, oldPos.y + PLAYER_SIZE.y, oldPos.z + PLAYER_SIZE.z}
-      };
-      
-      local vbb = {
-        ll = {vx - 0.5, vy - 0.5, vz - 0.5},
-        ur = {vx + 0.5, vy + 0.5, vz + 0.5}
-      };
-      
-      if (Voxel.intersectAABBs(pbb, vbb)) then
-        return;
+      for i = 1, Editor.toolCount do
+        
+        c = Editor.insertVoxel(c, normal);
+        if (not c) then
+          return;
+        end
+        
       end
-      
-      Voxel.insert(state.grid, 
-        {
-          type = Voxel.BLOCK_INDEX_MAP[Editor.voxelType],
-          --color = Editor.voxelColor
-        }, vx, vy, vz);
         
     elseif (button == 2) then
       local vx, vy, vz = c[1], c[2], c[3];
@@ -314,7 +354,7 @@ function renderScene(player)
 
   GFX.setCanvas3D(state.canvas3D)
   love.graphics.setDepthMode( "lequal", true );
-  love.graphics.clear(0,0,0,0, true, true);
+  love.graphics.clear(0.1,0.6,1.0,1, true, true);
   
   love.graphics.setColor(1,1,1,1);
   local w, h = love.graphics.getDimensions();
@@ -361,7 +401,6 @@ function PostProcess.render()
   if (PostProcess.effect == "fadeIn") then
     
     local t = (love.timer.getTime() - PostProcess.startTime) / PostProcess.duration;
-    --love.graphics.setColor(1, 0.75, 0.0, 1.0 - t); 
     
     PostProcess.color[4] = (1.0 - t) * (PostProcess.startAlpha or 1.0);
     love.graphics.setColor(PostProcess.color);
@@ -386,8 +425,88 @@ function PostProcess.render()
       PostProcess.effect = "none";
     end
     
+  elseif (PostProcess.effect == "message") then
+    
+     local t = (love.timer.getTime() - PostProcess.startTime) / PostProcess.duration;
+    
+    love.graphics.setColor(0.0, 0.0, 0.0, 0.5);
+    local mx, my = w * 0.1, h * 0.1;
+    
+    love.graphics.rectangle("fill", mx, my, w - mx * 2, h - my * 2);
+
+    love.graphics.setColor(1.0, 1.0, 1.0, 1.0);
+   
+
+
+   love.graphics.printf(PostProcess.text , mx * 2, my * 2, w - mx * 4);
+    
+    if (t >= 1) then
+      PostProcess.effect = "none";
+    end
   end
 
+end
+
+local function split(str, sep)
+   local result = {}
+   local regex = ("([^%s]+)"):format(sep)
+   for each in str:gmatch(regex) do
+      table.insert(result, each)
+   end
+   return result
+end
+
+local function extractColor(colorText)
+  
+  local comps = split(colorText, ",");
+  
+  local r = comps[1] or "1";
+  local g = comps[2] or "1";
+  local b = comps[3] or "1";
+  local a = comps[4] or "1";
+  
+  return {r, g, b, a};
+  
+end
+
+function PostProcess.playMessageOverlay(text)
+  
+  PostProcess.effect = "message";
+  PostProcess.duration = 1;
+  PostProcess.startAlpha = 1.0;
+  PostProcess.startTime = love.timer.getTime();
+  local textf = split(text, "<");
+  
+  if (textf[2] == nil) then 
+    PostProcess.text = text;
+    return;
+  end
+  
+  PostProcess.text = {};
+  local index = 1;
+  
+  for i, txt in pairs(textf) do
+    
+    local pair = split(txt, ">");
+
+    if (pair[2] == nil) then
+      
+      PostProcess.text[index] = {1,1,1,1};
+      index = index + 1;
+      PostProcess.text[index] = pair[1];
+      index = index + 1;
+      
+    else 
+    
+      PostProcess.text[index] = extractColor(pair[1]);
+      index = index + 1;
+      PostProcess.text[index] = pair[2];
+      index = index + 1;
+    
+    end
+  
+  end
+  
 end
 
 
@@ -455,11 +574,6 @@ function collidePlayer(player, dt, collisionData)
   
   local standVoxelCount = 0;
   
-  local rubberType = Voxel.BLOCK_INDEX_MAP["rubber"];
-  local fireType = Voxel.BLOCK_INDEX_MAP["fire"];
-  local waterType = Voxel.BLOCK_INDEX_MAP["water"];
-  local endType = Voxel.BLOCK_INDEX_MAP["end"];
-  
   Voxel.intersectGridAABB(state.grid, epbb, function(v, c)
         
     local vbb = {
@@ -467,23 +581,21 @@ function collidePlayer(player, dt, collisionData)
       ur = {c[1] + 0.5, c[2] + 0.5, c[3] + 0.5}
     };
     
+    local props = Voxel.getPropertyForType(v.type);
+    
+    if (props.nearby) then
+      props.nearby(collisionData, v, npbb, vbb);
+    end
+    
     if (not Voxel.intersectAABBs(npbb, vbb)) then
       return;
     end
-    
-    if (v.type == endType) then
-      collisionData.finish = true;
+  
+    if (props.collide) then
+      props.collide(collisionData, v, npbb, vbb);
     end
     
-    if (v.type == waterType) then
-      collisionData.water = true;
-      return;
-    end
-    
-    if (v.type == fireType) then
-      if (Voxel.overlapAABBs(npbb, vbb) > 0.1) then
-        collisionData.fire = true;
-      end
+    if (props.fluid) then
       return;
     end
     
@@ -494,12 +606,7 @@ function collidePlayer(player, dt, collisionData)
     
     local epsi = 0.0001;
     
-    local bounce = 0;
-    if (v.type == rubberType) then
-      bounce = 1.0;
-    end
-    
-
+    local bounce = props.bounciness or 0.0;    
     
     --Y Negative
     if (opbb.ll[2] >= vbb.ur[2] and npbb.ll[2] < vbb.ur[2] and not vup1 and not vup2) then
@@ -540,27 +647,6 @@ function collidePlayer(player, dt, collisionData)
       ll = {newPos.x - PLAYER_SIZE.x, newPos.y - PLAYER_SIZE.y, newPos.z - PLAYER_SIZE.z},
       ur = {newPos.x + PLAYER_SIZE.x, newPos.y + PLAYER_SIZE.y, newPos.z + PLAYER_SIZE.z}
     };
-    --[[
-    voxPos:set(center[1], center[2] - Y_BIAS, center[3]);
-    --newPos.y = newPos.y - 0.4;
-    voxDelta = voxPos - newPos;
-    
-    local whichAxis = voxDelta:to_axis();  
-    local pm = vec3.dot(voxDelta, player.velocity);
-
-    if (pm > 0) then
-      --Subtract velocity projected on voxel direction
-      player.velocity = player.velocity - (voxDelta * pm);
-      
-      --Position player exactly along axis
-      voxPos.y = voxPos.y + Y_BIAS;
-      player.position[whichAxis] = (voxPos - voxDelta * (PLAYER_SIZE[whichAxis] + 0.5))[whichAxis];
-    end
-    ]]
-    
-    
-    
-    --hits = true;
 
   end);
 
@@ -697,13 +783,22 @@ function updatePlayer(player, inputs, dt)
     teleportPlayerToStart(player);
   end
   
+  if (collisionData.info) then
+    PostProcess.playMessageOverlay(collisionData.info);
+  end
+  
   if (player.position.y < WORLD_Y_MIN) then
     PostProcess.playFallOverlay();
     teleportPlayerToStart(player);
   end
   
   if (collisionData.finish) then
+    if (Editor.isActive and Editor.selection and Editor.selection.voxel.type == Voxel.BLOCK_INDEX_MAP["end"]) then
+      return
+    end
+    
     PostProcess.playWinOverlay();
+    loadLevelFromId(collisionData.nextLevel);
   end
   
   player.inWater = collisionData.water;
@@ -806,6 +901,7 @@ function client.resize()
 end
 
 function client.draw()
+  
   renderScene(Player1);
   
   love.graphics.draw(state.canvas3D.color, 0, 0,0, 1, 1);
@@ -821,9 +917,10 @@ end
 function client.load()
   love.resize();
   
-  state.grid = Voxel.newPracticeGrid();
+  state.grid = Voxel.newStarterGrid();
   teleportPlayerToStart(Player1);
   
+  --loadLevelFromId("practice0");
 end
 
 
@@ -842,6 +939,44 @@ function castle.postopened(post)
   
 end
 
+function loadLevelFromId(levelId)
+  
+  if (not levelId) then
+    return
+  end
+
+  if (levelId == "starter") then
+    loadLevel({grid = Voxel.newStarterGrid()});
+  else
+    
+    network.async(function()
+      
+      local encodedLevel = require("levels/"..levelId..".lua");
+      if (encodedLevel) then
+        local data = cjson.decode(encodedLevel);
+        if (data.grid) then
+          data.grid = Voxel.unpostify(data.grid);
+          Editor.loadLevelName = levelId;
+          loadLevel(data);
+        end
+      end
+    
+    end);
+    
+    --[[
+    local encodedLevel = require("levels/"..levelId..".lua");
+    if (encodedLevel) then
+      local data = cjson.decode(encodedLevel);
+      if (data.grid) then
+        loadLevel(data.grid);
+      end
+    end
+    ]]
+  
+  end  
+  
+end
+
 function loadLevel(level)
   
   state.grid = level.grid;
@@ -850,13 +985,27 @@ function loadLevel(level)
 
 end
 
+function saveLevel(filename)
 
-function postLevel()
-  
- 
   local data = {};
   data.grid = Voxel.postify(state.grid);
   data.version = PostVersion;
+  data.blockTypes = Voxel.BLOCK_TYPES;
+
+  local file = io.open("C:/level.lua", "w+");
+
+  file:write("return [["..cjson.encode(data).."]]");
+
+  io.close(file);
+  
+end
+
+function postLevel()
+
+  local data = {};
+  data.grid = Voxel.postify(state.grid);
+  data.version = PostVersion;
+  data.blockTypes = Voxel.BLOCK_TYPES;
   
   network.async(function()
     castle.post.create {
