@@ -10,7 +10,7 @@ Voxel.BLOCK_TYPES = {
 }
 
 Voxel.LEVELS = {
-  "practice0", "practice1", "practice2"
+  "blank", "practice0", "practice1", "practice2"
 }
 
 Voxel.BLOCK_PROPERTIES = {
@@ -155,6 +155,33 @@ function Matrix.contains(matrix, x, y, z)
   local vox = Matrix.get(matrix, x, y, z);
   return vox;
   
+end
+
+function Voxel.newBlankGrid()
+  
+  local waterMatrix = {};
+  local matrix = {};
+   local startType = Voxel.BLOCK_INDEX_MAP["start"];
+  local woodType = Voxel.BLOCK_INDEX_MAP["wood"];
+  local endType = Voxel.BLOCK_INDEX_MAP["end"];
+ 
+  
+  
+  Matrix.insert(matrix, {type = startType}, 0, 21, 0);
+  Matrix.insert(matrix, {type = endType}, 0, 21, 2);
+  Matrix.insert(matrix, {type = woodType}, 0, 20, 0);
+  Matrix.insert(matrix, {type = woodType}, 0, 20, 1);
+  Matrix.insert(matrix, {type = woodType}, 0, 20, 2);
+  
+  return {
+    matrices = {waterMatrix, matrix},
+    startBlock = {0, 21, 0},
+    endBlock = {0, 21, 2},
+    matrixIndex = 2,
+    matrixVoxelCount = 5,
+    dirtyMeshes = {[1] = false, [2] = true}
+  }
+
 end
 
 function Voxel.newStarterGrid()

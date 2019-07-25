@@ -12,7 +12,7 @@ if CASTLE_PREFETCH then
         'lib/cpml/modules/quat.lua',
         'lib/cpml/modules/constants.lua',
         'lib/cpml/init.lua',
-        'tiles.png',
+        'tiles2.png',
         'shaders.lua',
         'gfx3D.lua',
         'voxel.lua',
@@ -86,7 +86,7 @@ local Editor = {
   isActive = true,
   gravity = true,
   mouseCamera = false,
-  loadLevelName = Voxel.LEVELS[1],
+  loadLevelName = Voxel.LEVELS[2],
   toolCount = 1
 };
 
@@ -728,7 +728,7 @@ function getPlayerDamping(player, collisionData, inputs, dt)
 end
 
 function updatePlayer(player, inputs, dt)
-
+    
   dt = math.min(dt, 0.1); 
 
   updatePlayerOrientation(player, inputs, dt);
@@ -928,7 +928,7 @@ function castle.postopened(post)
   
   local version = post.data.version;
   
-  if (version < 2) then
+  if (version < 3) then
     loadLevel({grid = Voxel.newStarterGrid()});
   else
     loadLevel({grid = Voxel.unpostify(post.data.grid)});
@@ -939,15 +939,26 @@ function castle.postopened(post)
   
 end
 
+local asyncLevelLoading = -10;
+
 function loadLevelFromId(levelId)
   
   if (not levelId) then
     return
   end
 
-  if (levelId == "starter") then
-    loadLevel({grid = Voxel.newStarterGrid()});
+  
+  if (levelId == "blank") then
+    loadLevel({grid = Voxel.newBlankGrid()});
   else
+    
+    if (love.timer.getTime() - asyncLevelLoading < 5) then
+      return;
+    end
+  
+    asyncLevelLoading = love.timer.getTime();
+
+    print("Loading", levelId);
     
     network.async(function()
       
@@ -961,6 +972,7 @@ function loadLevelFromId(levelId)
         end
       end
     
+      
     end);
     
     --[[
