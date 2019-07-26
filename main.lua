@@ -20,6 +20,20 @@ if CASTLE_PREFETCH then
     })
 end
 
+function SecondsToClock(seconds)
+  local seconds = tonumber(seconds)
+
+  if seconds <= 0 then
+    return " 00:00";
+  else
+    --hours = string.format("%02.f", math.floor(seconds/3600));
+    --mins = string.format("%02.f", math.floor(seconds/60 - (hours*60)));
+    mins = string.format("%02.f", math.floor(seconds/60));
+    --secs = string.format("%02.f", math.floor(seconds - hours*3600 - mins *60));
+    secs = string.format("%02.f", math.floor(seconds - mins *60));
+    return " "..mins..":"..secs
+  end
+end
 
 local client = love;
 GFX = require("gfx3D");
@@ -51,7 +65,7 @@ local JUMP = UP * 6.4;
 local MAX_BOUNCE = 10;
 
 local state = {
-
+  time = 0;
 }
 
 local Player1 = {
@@ -76,7 +90,7 @@ local Player1 = {
 
 
 local TOOLS = {
-  "add/remove", "select"
+  "add", "remove", "select"
 }
 
 local Editor = {
@@ -101,6 +115,8 @@ end
 function teleportPlayerToStart(player)
     local startBlock = state.grid.startBlock;
     teleportPlayer(Player1, startBlock[1], startBlock[2] + 2, startBlock[3] );
+    state.time = 0.0;
+    state.levelFinished = false;
 end
 
 function setMouseControlCamera(toggle)
@@ -289,6 +305,14 @@ function Editor.insertVoxel(prevCenter, normal)
   return {vx, vy, vz};
 end
 
+function Editor.mousereleased(x, y, button)
+  
+  if (Editor.isActive and button == 3) then
+    setMouseControlCamera(false);
+  end
+
+end
+
 function Editor.mousepressed(x, y, button)
 
   if (state.mouseCameraPressed) then
@@ -300,22 +324,19 @@ function Editor.mousepressed(x, y, button)
     return;
   end
 
-  local w, h = love.graphics.getDimensions();
-  local mx, my = love.mouse.getPosition();
-  local ray = GFX.pickRay(mx / w, my / h);
-  local vox, c, pos, normal = Voxel.traceRay(state.grid, ray);
-  local round = cpml.utils.round;
+ 
+  if (button == 3) then
+    setMouseControlCamera(true);
+  else
+    local w, h = love.graphics.getDimensions();
+    local mx, my = love.mouse.getPosition();
+    local ray = GFX.pickRay(mx / w, my / h);
+    local vox, c, pos, normal = Voxel.traceRay(state.grid, ray);
+    local round = cpml.utils.round;
   
-  if (vox) then
-
     if (Editor.tool == "select") then
-      
-      Editor.selectVoxel(vox, c[1], c[2], c[3]);
-      
-      return;
-    end
-    
-    if (button == 1) then
+      Editor.selectVoxel(vox, c[1], c[2], c[3]);      
+    elseif (Editor.tool == "add" and button == 1) then
       
       for i = 1, Editor.toolCount do
         
@@ -326,7 +347,7 @@ function Editor.mousepressed(x, y, button)
         
       end
         
-    elseif (button == 2) then
+    elseif (Editor.tool == "remove" or (Editor.tool == "add" and button == 2)) then
       local vx, vy, vz = c[1], c[2], c[3];
       Voxel.remove(state.grid, vx, vy, vz);  
     end
@@ -334,6 +355,13 @@ function Editor.mousepressed(x, y, button)
   end  
 
   
+end
+
+
+function love.mousereleased(...)
+  
+  Editor.mousereleased(...);
+
 end
 
 function love.mousepressed(...)
@@ -419,6 +447,14 @@ function PostProcess.render()
         love.graphics.print(PostProcess.text, rndm() * w + rndm(-amt, amt) * t, rndm() * h + rndm(-amt, amt) * t);
         
       end
+   end
+   
+   if (PostProcess.levelTime) then
+   
+    love.graphics.setColor(1.0, 1.0, 1.0, 1.0 - t);
+    love.graphics.printf("Finish Time:", 0, 100, w, "center");
+    love.graphics.printf(SecondsToClock(PostProcess.levelTime), 0, 150, w, "center");
+    
    end
     
     if (t >= 1) then
@@ -537,9 +573,13 @@ function PostProcess.playWinOverlay()
   PostProcess.effect = "fadeIn";
   PostProcess.color = {0.0, 0.0, 0.0, 1.0};
   PostProcess.startTime = love.timer.getTime();
-  PostProcess.duration = 4;
+  PostProcess.duration = 6;
   PostProcess.startAlpha = 0.5;
   PostProcess.text = "Win!!";
+  PostProcess.text = nil;
+  
+  PostProcess.levelTime = state.time;
+  
   
 end
 
@@ -657,8 +697,8 @@ end
 
 function updatePlayerOrientation(player, inputs, dt)
 
-  player.rotationX = player.rotationX + inputs.look.x * dt * 2;
-  player.rotationY = cpml.utils.clamp(player.rotationY + inputs.look.y * dt * 2, -math.pi * 0.45, math.pi * 0.45);
+  player.rotationX = player.rotationX + inputs.look.x;
+  player.rotationY = cpml.utils.clamp(player.rotationY + inputs.look.y, -math.pi * 0.45, math.pi * 0.45);
 
   player.lookDir:set(
     sin(player.rotationX) * cos(player.rotationY),
@@ -729,6 +769,7 @@ end
 
 function updatePlayer(player, inputs, dt)
     
+  
   dt = math.min(dt, 0.1); 
 
   updatePlayerOrientation(player, inputs, dt);
@@ -797,6 +838,7 @@ function updatePlayer(player, inputs, dt)
       return
     end
     
+    state.levelFinished = true;
     PostProcess.playWinOverlay();
     loadLevelFromId(collisionData.nextLevel);
   end
@@ -808,7 +850,7 @@ end
 local inputs = {
   jump = 0;
 };
-function getInputs()
+function getInputs(dt)
     
   inputs.move = vec3();
   inputs.look = vec2();
@@ -828,19 +870,19 @@ function getInputs()
   end
   
   if (love.keyboard.isDown("left")) then
-    inputs.look.x = 1;
+    inputs.look.x = 2 * dt;
   end
   
   if (love.keyboard.isDown("right")) then
-    inputs.look.x = -1;
+    inputs.look.x = -2 * dt;
   end
   
   if (love.keyboard.isDown("up")) then
-    inputs.look.y = 1;
+    inputs.look.y = 2 * dt;
   end
   
   if (love.keyboard.isDown("down")) then
-    inputs.look.y = -1;
+    inputs.look.y = -2 * dt;
   end
   
   if (love.keyboard.isDown("space")) then
@@ -853,8 +895,8 @@ function getInputs()
   
   if (state.mouseCamera) then
     
-    inputs.look.x = inputs.look.x - (state.mouseDeltaX  or 0) * 0.15;
-    inputs.look.y = inputs.look.y - (state.mouseDeltaY  or 0) * 0.15;
+    inputs.look.x = inputs.look.x - (state.mouseDeltaX  or 0) * 0.003;
+    inputs.look.y = inputs.look.y - (state.mouseDeltaY  or 0) * 0.003;
   
     state.mouseDeltaX = 0;
     state.mouseDeltaY = 0;
@@ -868,6 +910,32 @@ local dpiSave = -1;
 
 local DELTA_SAVE = 0;
 
+function updateGameplay(dt)
+  
+  if (not state.levelFinished) then
+    state.time = state.time + dt;
+  end
+  
+  updatePlayer(Player1, getInputs(dt), dt);
+
+end
+
+function renderGameplay()
+
+  renderScene(Player1);
+  
+  love.graphics.draw(state.canvas3D.color, 0, 0,0, 1, 1);
+  PostProcess.render();
+  
+ 
+  --Debug print framerates
+  --love.graphics.setColor(1,0,0,1);
+  --love.graphics.print(DELTA_SAVE, 0, 0);
+  
+  love.graphics.setColor(1,1,1,1);
+  love.graphics.print(SecondsToClock(state.time), 0, 0);
+end
+
 function client.update(dt)
   
   DELTA_SAVE = (DELTA_SAVE + dt) * 0.5;
@@ -878,7 +946,7 @@ function client.update(dt)
     client.resize();
   end
 
-  updatePlayer(Player1, getInputs(), dt);
+  updateGameplay(dt);
 
 end
 
@@ -901,17 +969,9 @@ function client.resize()
 end
 
 function client.draw()
-  
-  renderScene(Player1);
-  
-  love.graphics.draw(state.canvas3D.color, 0, 0,0, 1, 1);
- 
- 
-  --Debug print framerates
-  --love.graphics.setColor(1,0,0,1);
-  --love.graphics.print(DELTA_SAVE, 0, 0);
-  
-  PostProcess.render();
+
+    renderGameplay();
+
 end
 
 function client.load()
@@ -919,6 +979,8 @@ function client.load()
   
   state.grid = Voxel.newStarterGrid();
   teleportPlayerToStart(Player1);
+  
+  
   
   --loadLevelFromId("practice0");
 end
