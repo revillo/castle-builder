@@ -14,6 +14,7 @@ if CASTLE_PREFETCH then
         'lib/cpml/init.lua',
         'tiles2.png',
         'shaders.lua',
+        'editor.lua',
         'gfx3D.lua',
         'voxel.lua',
         'mesh_util.lua',
@@ -30,7 +31,7 @@ function SecondsToClock(seconds)
     --mins = string.format("%02.f", math.floor(seconds/60 - (hours*60)));
     mins = string.format("%02.f", math.floor(seconds/60));
     --secs = string.format("%02.f", math.floor(seconds - hours*3600 - mins *60));
-    secs = string.format("%02.f", math.floor(seconds - mins *60));
+    secs = string.format("%02.f", math.floor(seconds - mins * 60));
     return " "..mins..":"..secs
   end
 end
@@ -41,13 +42,12 @@ cpml = GFX.cpml;
 Mesh = require("mesh_util");
 Shaders = require("shaders");
 Voxel = require("voxel");
-
+ui = castle.ui;
 cjson = require("cjson");
 
 local mat4 = cpml.mat4;
 local vec3 = cpml.vec3;
 local vec2 = cpml.vec2;
-ui = castle.ui;
 local PLAYER_SIZE = {x = 0.3, y = 0.75, z = 0.3};
 local PLAYER_SPEED = 8;
 local WORLD_Y_MIN = -10;
@@ -64,7 +64,7 @@ local WATER_DAMPING = 3;
 local JUMP = UP * 6.4;
 local MAX_BOUNCE = 10;
 
-local state = {
+State = {
   time = 0;
 }
 
@@ -76,6 +76,8 @@ local Player1 = {
     fovy = 70
   },
   
+  size = PLAYER_SIZE,
+  speed = PLAYER_SPEED,
   rotationX = 0,
   rotationY = 0,
   
@@ -88,23 +90,15 @@ local Player1 = {
   headOffset = vec3(0.0, 0.73, 0.0);
 }
 
+State.player1 = Player1;
 
-local TOOLS = {
-  "add", "remove", "select"
-}
+Editor = {};
+Gameplay = {};
+Level = {};
 
-local Editor = {
-  voxelType = "wood",
-  voxelColor = {1,1,1},
-  tool = TOOLS[1],
-  isActive = true,
-  gravity = true,
-  mouseCamera = false,
-  loadLevelName = Voxel.LEVELS[2],
-  toolCount = 1
-};
+Editor = require("editor");
 
-function teleportPlayer(player, x, y, z)
+function Gameplay.teleportPlayer(player, x, y, z)
     player.position:set(x,y,z);
     player.velocity:set(0,0,0);
     player.camera.position = player.position + player.headOffset;
@@ -112,251 +106,18 @@ function teleportPlayer(player, x, y, z)
     player.rotationY = 0;
 end
 
-function teleportPlayerToStart(player)
-    local startBlock = state.grid.startBlock;
-    teleportPlayer(Player1, startBlock[1], startBlock[2] + 2, startBlock[3] );
-    state.time = 0.0;
-    state.levelFinished = false;
+function Gameplay.teleportPlayerToStart(player)
+    player = player or State.player1;
+    local startBlock = State.grid.startBlock;
+    Gameplay.teleportPlayer(Player1, startBlock[1], startBlock[2] + 2, startBlock[3] );
+    State.time = 0.0;
+    State.levelFinished = false;
 end
 
-function setMouseControlCamera(toggle)
+function Gameplay.setMouseControlCamera(toggle)
   love.mouse.setRelativeMode(toggle);
-  state.mouseCamera = toggle;
+  State.mouseCamera = toggle;
 end
-
-
-function Editor.uiupdate()
-    
-    if (not Editor.isActive) then
-      
-      local editLevel = ui.button("Edit Level");
-      if (editLevel) then
-        Editor.isActive = true;
-        setMouseControlCamera(false);
-      end
-      return;
-    end
-    
-    local playLevelBtn, postLevelBtn;
-    
-    playLevelBtn = ui.button("Play Level");
-    postLevelBtn = ui.button("Post Level");
-    
-    if (DEVELOPER_MODE) then
-      saveLevelBtn = ui.button("Save Level To File");
-      loadLevelBtn = ui.button("Load Level From File");
-    
-      if (saveLevelBtn) then
-        saveLevel("levels/last.lua");
-      end
-    
-      if (loadLevelBtn) then
-        loadLevelFromId("last");
-      end
-    end
-    
-    if (postLevelBtn) then
-      postLevel(state.grid);
-    end
-    
-    if (playLevelBtn) then
-      --setMouseControlCamera(true);
-      state.mouseCameraPressed = true;
-      teleportPlayerToStart(Player1);
-      Editor.isActive = false;
-    end
-  
-    ui.section("Change Level", {
-      defaultOpen = false,
-    }, function()
-      
-      Editor.loadLevelName = ui.dropdown("Select Level", Editor.loadLevelName, Voxel.LEVELS, {
-        
-        onChange = function(level)
-          loadLevelFromId(level);
-        end
-      
-      });
-    
-    end);
-    
-    
-    ui.section("Edit Voxels", {
-      defaultOpen = true,
-    }, function()
-      
-      Editor.tool = ui.radioButtonGroup('Tool', Editor.tool, TOOLS, {
-        onChange = function(tool)
-          
-          if (tool ~= "select") then
-            Editor.selection = nil;
-          end
-        end      
-      });
-      
-      Editor.toolCount = ui.slider("Block Multiplier", Editor.toolCount, 1, 10);
-      
-      Editor.voxelType = ui.dropdown("Voxel Type", Editor.voxelType, Voxel.BLOCK_TYPES, {
-        
-        onChange = function(typeName)
-        
-          if (Editor.selection) then
-            Editor.selection.voxel.type = Voxel.BLOCK_INDEX_MAP[typeName];
-            local c = Editor.selection.center;
-            Voxel.insert(state.grid, Editor.selection.voxel, c[1], c[2], c[3]); 
-          end
-          
-        end
-      
-      });
-      
-      --[[
-      Editor.voxelColor = {ui.colorPicker("Paint Color", Editor.voxelColor[1], Editor.voxelColor[2], Editor.voxelColor[3], 1, {
-          enableAlpha = false,
-          onChange = function(clr)
-            
-            if (Editor.selection) then
-              Editor.selection.voxel.color = {clr.r, clr.g, clr.b};
-              local c = Editor.selection.center;
-              Voxel.insert(state.grid, Editor.selection.voxel, c[1], c[2], c[3]);
-            end
-         end
-        })
-      };]]
-        
-      
-      if (Editor.selection) then
-        local c = Editor.selection.center;
-        ui.markdown("x="..c[1].." y="..c[2].." z="..c[3]);
-        
-        local voxel = Editor.selection.voxel;
-        local props = Voxel.getPropertyForType(voxel.type);
-        if (props.uiupdate) then
-          props.uiupdate(voxel);
-        end
-      end
-    
-    end);
-    
-     ui.section("Editor Camera", {
-      defaultOpen = true,
-    }, function()
-      
-      Editor.gravity = ui.checkbox("Gravity", Editor.gravity);
-      Editor.mouseCamera = ui.checkbox("Mouse", Editor.mouseCamera, {
-        onChange = function(toggle)
-        
-          if (toggle) then
-            state.mouseCameraPressed = true;
-          else
-            setMouseControlCamera(false);
-          end
-        
-        end
-      });
-      
-      end);
-    
-end
-
-function Editor.selectVoxel(voxel, x, y, z)
-  
-   Editor.selection = {
-      center = {x, y, z},
-      voxel = voxel
-   };
-   
-   Editor.voxelType = Voxel.BLOCK_TYPES[voxel.type];
-   Editor.voxelColor = voxel.color or {1,1,1};
-
-end
-
-
-function Editor.insertVoxel(prevCenter, normal)
-
-  local c = prevCenter;
-  local round = cpml.utils.round;
-
-  local vx, vy, vz = round(c[1] + normal.x), round(c[2] + normal.y), round(c[3] + normal.z);
-      
-    if (vy < 0) then return end;
-    
-    local oldPos = Player1.position;
-
-    local pbb = {
-      ll = {oldPos.x - PLAYER_SIZE.x, oldPos.y - PLAYER_SIZE.y, oldPos.z - PLAYER_SIZE.z},
-      ur = {oldPos.x + PLAYER_SIZE.x, oldPos.y + PLAYER_SIZE.y, oldPos.z + PLAYER_SIZE.z}
-    };
-    
-    local vbb = {
-      ll = {vx - 0.5, vy - 0.5, vz - 0.5},
-      ur = {vx + 0.5, vy + 0.5, vz + 0.5}
-    };
-    
-    if (Voxel.intersectAABBs(pbb, vbb)) then
-      return nil;
-    end
-    
-    Voxel.insert(state.grid, 
-      {
-        type = Voxel.BLOCK_INDEX_MAP[Editor.voxelType],
-        --color = Editor.voxelColor
-      }, vx, vy, vz);
-  return {vx, vy, vz};
-end
-
-function Editor.mousereleased(x, y, button)
-  
-  if (Editor.isActive and button == 3) then
-    setMouseControlCamera(false);
-  end
-
-end
-
-function Editor.mousepressed(x, y, button)
-
-  if (state.mouseCameraPressed) then
-    state.mouseCameraPressed = false;
-    setMouseControlCamera(true);
-  end
-  
-  if (not Editor.isActive) then
-    return;
-  end
-
- 
-  if (button == 3) then
-    setMouseControlCamera(true);
-  else
-    local w, h = love.graphics.getDimensions();
-    local mx, my = love.mouse.getPosition();
-    local ray = GFX.pickRay(mx / w, my / h);
-    local vox, c, pos, normal = Voxel.traceRay(state.grid, ray);
-    local round = cpml.utils.round;
-  
-    if (Editor.tool == "select") then
-      Editor.selectVoxel(vox, c[1], c[2], c[3]);      
-    elseif (Editor.tool == "add" and button == 1) then
-      
-      for i = 1, Editor.toolCount do
-        
-        c = Editor.insertVoxel(c, normal);
-        if (not c) then
-          return;
-        end
-        
-      end
-        
-    elseif (Editor.tool == "remove" or (Editor.tool == "add" and button == 2)) then
-      local vx, vy, vz = c[1], c[2], c[3];
-      Voxel.remove(state.grid, vx, vy, vz);  
-    end
-    
-  end  
-
-  
-end
-
 
 function love.mousereleased(...)
   
@@ -378,9 +139,9 @@ end
 
 
 
-function renderScene(player)
+function Gameplay.renderScene(player)
 
-  GFX.setCanvas3D(state.canvas3D)
+  GFX.setCanvas3D(State.canvas3D)
   love.graphics.setDepthMode( "lequal", true );
   love.graphics.clear(0.1,0.6,1.0,1, true, true);
   
@@ -393,7 +154,7 @@ function renderScene(player)
   GFX.setCameraView(player.camera.position, player.camera.look_at, UP);
   GFX.setCameraPerspective(player.camera.fovy, w/h, CAMERA_NEAR_CLIP, CAMERA_FAR_CLIP);
   
-  Voxel.draw(state.grid)
+  Voxel.draw(State.grid)
   
     
   GFX.setShader(GFX.Shader.Default);
@@ -409,15 +170,6 @@ function renderScene(player)
   love.graphics.setShader();
   love.graphics.setCanvas();
 end
-
-local newPos = vec3();
-local voxPos = vec3();
-local voxDelta = vec3();
-local voxPosDelta = vec3();
-local moveVelocity = vec3();
-
-local Y_BIAS = 0.0;
-
 
 local PostProcess = {
   effect = "none"
@@ -483,7 +235,7 @@ function PostProcess.render()
 
 end
 
-local function split(str, sep)
+function PostProcess.split(str, sep)
    local result = {}
    local regex = ("([^%s]+)"):format(sep)
    for each in str:gmatch(regex) do
@@ -492,9 +244,9 @@ local function split(str, sep)
    return result
 end
 
-local function extractColor(colorText)
+function PostProcess.extractColor(colorText)
   
-  local comps = split(colorText, ",");
+  local comps = PostProcess.split(colorText, ",");
   
   local r = comps[1] or "1";
   local g = comps[2] or "1";
@@ -511,7 +263,7 @@ function PostProcess.playMessageOverlay(text)
   PostProcess.duration = 1;
   PostProcess.startAlpha = 1.0;
   PostProcess.startTime = love.timer.getTime();
-  local textf = split(text, "<");
+  local textf = PostProcess.split(text, "<");
   
   if (textf[2] == nil) then 
     PostProcess.text = text;
@@ -523,7 +275,7 @@ function PostProcess.playMessageOverlay(text)
   
   for i, txt in pairs(textf) do
     
-    local pair = split(txt, ">");
+    local pair = PostProcess.split(txt, ">");
 
     if (pair[2] == nil) then
       
@@ -534,7 +286,7 @@ function PostProcess.playMessageOverlay(text)
       
     else 
     
-      PostProcess.text[index] = extractColor(pair[1]);
+      PostProcess.text[index] = PostProcess.extractColor(pair[1]);
       index = index + 1;
       PostProcess.text[index] = pair[2];
       index = index + 1;
@@ -578,14 +330,14 @@ function PostProcess.playWinOverlay()
   PostProcess.text = "Win!!";
   PostProcess.text = nil;
   
-  PostProcess.levelTime = state.time;
+  PostProcess.levelTime = State.time;
   
   
 end
 
+local newPos = vec3();
 
-
-function collidePlayer(player, dt, collisionData)
+function Gameplay.collidePlayer(player, dt, collisionData)
     
   newPos =  player.position + (player.velocity * dt);
   local oldPos = player.position;
@@ -610,11 +362,11 @@ function collidePlayer(player, dt, collisionData)
   local standingVoxels = {
   }
   
-  local vgrid = state.grid;
+  local vgrid = State.grid;
   
   local standVoxelCount = 0;
   
-  Voxel.intersectGridAABB(state.grid, epbb, function(v, c)
+  Voxel.intersectGridAABB(State.grid, epbb, function(v, c)
         
     local vbb = {
       ll = {c[1] - 0.5, c[2] - 0.5, c[3] - 0.5},
@@ -695,7 +447,7 @@ function collidePlayer(player, dt, collisionData)
 
 end
 
-function updatePlayerOrientation(player, inputs, dt)
+function Gameplay.updatePlayerOrientation(player, inputs, dt)
 
   player.rotationX = player.rotationX + inputs.look.x;
   player.rotationY = cpml.utils.clamp(player.rotationY + inputs.look.y, -math.pi * 0.45, math.pi * 0.45);
@@ -720,7 +472,7 @@ function updatePlayerOrientation(player, inputs, dt)
 
 end
 
-function getPlayerDamping(player, collisionData, inputs, dt)
+function Gameplay.getPlayerDamping(player, collisionData, inputs, dt)
 
   local airDamp = 0.1 * dt;
   local groundDamp = 0.2 * dt;
@@ -747,7 +499,7 @@ function getPlayerDamping(player, collisionData, inputs, dt)
       local runVelocity = (player.forwardDir * inputs.move.z * speed) + (player.rightDir * inputs.move.x * speed);
       
       local dampAngle = vec3.dot(vec3.normalize(player.velocity), vec3.normalize(runVelocity));
-      local dampAngle = 1.0-cpml.utils.clamp((dampAngle * 0.5 + 0.5), 0.0, 1.0);
+      dampAngle = 1.0-cpml.utils.clamp((dampAngle * 0.5 + 0.5), 0.0, 1.0);
       groundDamp = cpml.utils.lerp(0.2 * dt, 15 * dt, dampAngle);
     
     end
@@ -767,12 +519,12 @@ function getPlayerDamping(player, collisionData, inputs, dt)
   return vec3(groundDamp, airDamp, groundDamp);
 end
 
-function updatePlayer(player, inputs, dt)
+function Gameplay.updatePlayer(player, inputs, dt)
     
   
   dt = math.min(dt, 0.1); 
 
-  updatePlayerOrientation(player, inputs, dt);
+  Gameplay.updatePlayerOrientation(player, inputs, dt);
   
   local speed = PLAYER_SPEED * dt;
   
@@ -807,9 +559,9 @@ function updatePlayer(player, inputs, dt)
   
   
   --Collide player with voxels
-  collidePlayer(player, dt, collisionData);
+  Gameplay.collidePlayer(player, dt, collisionData);
  
-  local damping = getPlayerDamping(player, collisionData, inputs, dt);
+  local damping = Gameplay.getPlayerDamping(player, collisionData, inputs, dt);
   
   --Todo Make safe
   player.velocity = player.velocity - (player.velocity * damping);
@@ -821,7 +573,7 @@ function updatePlayer(player, inputs, dt)
   --Handle edge cases
   if (collisionData.fire) then
     PostProcess.playFireOverlay();
-    teleportPlayerToStart(player);
+    Gameplay.teleportPlayerToStart(player);
   end
   
   if (collisionData.info) then
@@ -830,7 +582,7 @@ function updatePlayer(player, inputs, dt)
   
   if (player.position.y < WORLD_Y_MIN) then
     PostProcess.playFallOverlay();
-    teleportPlayerToStart(player);
+    Gameplay.teleportPlayerToStart(player);
   end
   
   if (collisionData.finish) then
@@ -838,9 +590,9 @@ function updatePlayer(player, inputs, dt)
       return
     end
     
-    state.levelFinished = true;
+    State.levelFinished = true;
     PostProcess.playWinOverlay();
-    loadLevelFromId(collisionData.nextLevel);
+    Level.loadLevelFromId(collisionData.nextLevel);
   end
   
   player.inWater = collisionData.water;
@@ -848,14 +600,14 @@ function updatePlayer(player, inputs, dt)
 end
 
 local inputs = {
-  jump = 0;
 };
-function getInputs(dt)
-    
+
+function Gameplay.getInputs(dt)
+  
   inputs.move = vec3();
   inputs.look = vec2();
   inputs.jump = 0;
-  
+
   if (love.keyboard.isDown("a")) then
     inputs.move.x = -1;
   end
@@ -890,71 +642,70 @@ function getInputs(dt)
   end
   
   if (love.keyboard.isDown("escape")) then
-    setMouseControlCamera(false);
+    Gameplay.setMouseControlCamera(false);
   end
   
-  if (state.mouseCamera) then
+  if (State.mouseCamera) then
     
-    inputs.look.x = inputs.look.x - (state.mouseDeltaX  or 0) * 0.003;
-    inputs.look.y = inputs.look.y - (state.mouseDeltaY  or 0) * 0.003;
+    inputs.look.x = inputs.look.x - (State.mouseDeltaX  or 0) * 0.003;
+    inputs.look.y = inputs.look.y - (State.mouseDeltaY  or 0) * 0.003;
   
-    state.mouseDeltaX = 0;
-    state.mouseDeltaY = 0;
+    State.mouseDeltaX = 0;
+    State.mouseDeltaY = 0;
   end
   
   return inputs;
   
 end
 
-local dpiSave = -1;
+local DPISave = -1;
 
-local DELTA_SAVE = 0;
+local DTSave = 0;
 
-function updateGameplay(dt)
+function Gameplay.update(dt)
   
-  if (not state.levelFinished) then
-    state.time = state.time + dt;
+  if (not State.levelFinished) then
+    State.time = State.time + dt;
   end
   
-  updatePlayer(Player1, getInputs(dt), dt);
+  Gameplay.updatePlayer(Player1, Gameplay.getInputs(dt), dt);
 
 end
 
-function renderGameplay()
+function Gameplay.render()
 
-  renderScene(Player1);
+  Gameplay.renderScene(Player1);
   
-  love.graphics.draw(state.canvas3D.color, 0, 0,0, 1, 1);
+  love.graphics.draw(State.canvas3D.color, 0, 0,0, 1, 1);
   PostProcess.render();
   
  
   --Debug print framerates
   --love.graphics.setColor(1,0,0,1);
-  --love.graphics.print(DELTA_SAVE, 0, 0);
+  --love.graphics.print(DTSave, 0, 0);
   
   love.graphics.setColor(1,1,1,1);
-  love.graphics.print(SecondsToClock(state.time), 0, 0);
+  love.graphics.print(SecondsToClock(State.time), 0, 0);
 end
 
 function client.update(dt)
   
-  DELTA_SAVE = (DELTA_SAVE + dt) * 0.5;
+  DTSave = (DTSave + dt) * 0.5;
   
-  if (dpiSave ~= love.window.getDPIScale()) then
-    dpiSave = love.window.getDPIScale();
-    w,h = love.graphics.getDimensions();
-    client.resize();
+  if (DPISave ~= love.window.getDPIScale()) then
+    DPISave = love.window.getDPIScale();
+    love.resize();
   end
 
-  updateGameplay(dt);
+  Gameplay.update(dt);
 
 end
 
-function love.mousemoved(x, y, dx, dy)
+function client.mousemoved(x, y, dx, dy)
     
-  if (state.mouseCamera) then
-    state.mouseDeltaX = (state.mouseDeltaX or 0) + dx;
-    state.mouseDeltaY = (state.mouseDeltaY or 0) + dy;
+  if (State.mouseCamera) then
+    State.mouseDeltaX = (State.mouseDeltaX or 0) + dx;
+    State.mouseDeltaY = (State.mouseDeltaY or 0) + dy;
   end
 
 end
@@ -962,7 +713,7 @@ end
 function client.resize()
   local w, h = love.graphics.getDimensions();
   
-  state.canvas3D = GFX.createCanvas3D(w, h, {
+  State.canvas3D = GFX.createCanvas3D(w, h, {
     dpiscale = love.window.getDPIScale() * 2
   });
   
@@ -970,15 +721,15 @@ end
 
 function client.draw()
 
-    renderGameplay();
+    Gameplay.render();
 
 end
 
 function client.load()
   love.resize();
   
-  state.grid = Voxel.newStarterGrid();
-  teleportPlayerToStart(Player1);
+  State.grid = Voxel.newStarterGrid();
+  Gameplay.teleportPlayerToStart(Player1);
   
   
   
@@ -991,19 +742,20 @@ function castle.postopened(post)
   local version = post.data.version;
   
   if (version < 3) then
-    loadLevel({grid = Voxel.newStarterGrid()});
+    Level.loadLevel({grid = Voxel.newStarterGrid()});
   else
-    loadLevel({grid = Voxel.unpostify(post.data.grid)});
+    Level.loadLevel({grid = Voxel.unpostify(post.data.grid)});
   end
   
   Editor.isActive = false;
-  state.mouseCameraPressed = true;
+  State.mouseCameraPressed = true;
   
 end
 
+
 local asyncLevelLoading = -10;
 
-function loadLevelFromId(levelId)
+function Level.loadLevelFromId(levelId)
   
   if (not levelId) then
     return
@@ -1011,7 +763,7 @@ function loadLevelFromId(levelId)
 
   
   if (levelId == "blank") then
-    loadLevel({grid = Voxel.newBlankGrid()});
+    Level.loadLevel({grid = Voxel.newBlankGrid()});
   else
     
     if (love.timer.getTime() - asyncLevelLoading < 5) then
@@ -1030,7 +782,7 @@ function loadLevelFromId(levelId)
         if (data.grid) then
           data.grid = Voxel.unpostify(data.grid);
           Editor.loadLevelName = levelId;
-          loadLevel(data);
+          Level.loadLevel(data);
         end
       end
     
@@ -1051,18 +803,18 @@ function loadLevelFromId(levelId)
   
 end
 
-function loadLevel(level)
+function Level.loadLevel(level)
   
-  state.grid = level.grid;
-  Voxel.reload(state.grid);
-  teleportPlayerToStart(Player1);
+  State.grid = level.grid;
+  Voxel.reload(State.grid);
+  Gameplay.teleportPlayerToStart(Player1);
 
 end
 
-function saveLevel(filename)
+function Level.saveLevel(filename)
 
   local data = {};
-  data.grid = Voxel.postify(state.grid);
+  data.grid = Voxel.postify(State.grid);
   data.version = PostVersion;
   data.blockTypes = Voxel.BLOCK_TYPES;
 
@@ -1074,10 +826,10 @@ function saveLevel(filename)
   
 end
 
-function postLevel()
+function Level.postLevel()
 
   local data = {};
-  data.grid = Voxel.postify(state.grid);
+  data.grid = Voxel.postify(State.grid);
   data.version = PostVersion;
   data.blockTypes = Voxel.BLOCK_TYPES;
   
