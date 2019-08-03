@@ -1,11 +1,17 @@
 
 local Editor = {
+    TOOLS = {
+        "Add", "Remove", "Select"
+    },
+    
+    SCENE_TYPES = {
+        "Block", "Agent"
+    },
+
+    sceneType = "Block", 
     voxelType = "wood",
     voxelColor = {1,1,1},
-    tool = "add",
-    TOOLS = {
-        "add", "remove", "select"
-    },
+    tool = "Add",
     isActive = true,
     gravity = true,
     mouseCamera = false,
@@ -73,30 +79,42 @@ function Editor.uiupdate(State)
       defaultOpen = true,
     }, function()
       
+        Editor.sceneType = ui.dropdown("Type", Editor.sceneType, Editor.SCENE_TYPES);
+
+        if (Editor.sceneType == "Block") then
+            Editor.voxelType = ui.dropdown("Block Type", Editor.voxelType, Voxel.BLOCK_TYPES, {
+            
+            onChange = function(typeName)
+            
+                if (Editor.selection) then
+                    Editor.selection.voxel.type = Voxel.BLOCK_INDEX_MAP[typeName];
+                    local c = Editor.selection.center;
+                    Voxel.insert(State.grid, Editor.selection.voxel, c[1], c[2], c[3]); 
+                end
+                
+            end
+            
+            });
+        elseif (Editor.sceneType == "Agent") then
+            Editor.agentType = ui.dropdown("Agent Type", Editor.agentType or "SpringHead", Agent.TYPES, {
+                
+            });
+        end
+
       Editor.tool = ui.radioButtonGroup('Tool', Editor.tool, Editor.TOOLS, {
         onChange = function(tool)
           
           if (tool ~= "select") then
             Editor.selection = nil;
           end
+
         end      
       });
       
-      Editor.toolCount = ui.slider("Block Multiplier", Editor.toolCount, 1, 10);
-      
-      Editor.voxelType = ui.dropdown("Voxel Type", Editor.voxelType, Voxel.BLOCK_TYPES, {
-        
-        onChange = function(typeName)
-        
-          if (Editor.selection) then
-            Editor.selection.voxel.type = Voxel.BLOCK_INDEX_MAP[typeName];
-            local c = Editor.selection.center;
-            Voxel.insert(State.grid, Editor.selection.voxel, c[1], c[2], c[3]); 
-          end
-          
-        end
-      
-      });
+      if (Editor.tool == "Add" and Editor.sceneType == "Block") then
+        Editor.toolCount = ui.slider("Block Multiplier", Editor.toolCount, 1, 10);        
+      end
+
       
       --[[
       Editor.voxelColor = {ui.colorPicker("Paint Color", Editor.voxelColor[1], Editor.voxelColor[2], Editor.voxelColor[3], 1, {
@@ -159,6 +177,20 @@ function Editor.selectVoxel(voxel, x, y, z)
 
 end
 
+function Editor.insertAgent(prevCenter, normal)
+
+    local c = prevCenter;
+   
+    if (normal.y < 0.5) then return end;
+
+   local round = cpml.utils.round;
+   local vx, vy, vz = round(c[1] + normal.x), round(c[2] + normal.y), round(c[3] + normal.z);
+   
+    if (vy < 0) then return end;
+
+    Agent.addAgent(State.agentSystem, Editor.agentType, vx, vy, vz);
+
+end
 
 function Editor.insertVoxel(prevCenter, normal)
 
@@ -203,6 +235,7 @@ function Editor.mousereleased(x, y, button)
 
 end
 
+
 function Editor.mousepressed(x, y, button)
 
   if (State.mouseCameraPressed) then
@@ -221,18 +254,37 @@ function Editor.mousepressed(x, y, button)
     local w, h = love.graphics.getDimensions();
     local mx, my = love.mouse.getPosition();
     local ray = GFX.pickRay(mx / w, my / h);
-    local vox, c, pos, normal = Voxel.traceRay(State.grid, ray);
+    local vox, c, tVoxel, normal = Voxel.traceRay(State.grid, ray);
+    local agent, tAgent = Agent.traceRay(State.agentSystem, ray);
+
     local round = cpml.utils.round;
 
     if not vox then
         return
     end
   
-    if (Editor.tool == "select") then
+    if (Editor.sceneType == "Agent") then
+
+        if (Editor.tool == "Select") then
+            if (tAgent < tVoxel) then
+                --todo select agent
+            end
+        elseif (Editor.tool == "Add") then
+            Editor.insertAgent(c, normal);
+        elseif (Editor.tool == "Remove") then
+            if (tAgent < tVoxel) then
+                --todo remove agent
+            end
+        end
+
+    end
+
+
+    if (Editor.tool == "Select") then
       Editor.selectVoxel(vox, c[1], c[2], c[3]);      
-    elseif (Editor.tool == "add" and button == 1) then
+    elseif (Editor.tool == "Add" and button == 1) then
       
-      for i = 1, Editor.toolCount do
+      for _ = 1, Editor.toolCount do
         
         c = Editor.insertVoxel(c, normal);
         if (not c) then
@@ -241,7 +293,7 @@ function Editor.mousepressed(x, y, button)
         
       end
         
-    elseif (Editor.tool == "remove" or (Editor.tool == "add" and button == 2)) then
+    elseif (Editor.tool == "Remove" or (Editor.tool == "Add" and button == 2)) then
       local vx, vy, vz = c[1], c[2], c[3];
       Voxel.remove(State.grid, vx, vy, vz);  
     end

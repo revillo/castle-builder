@@ -17,6 +17,7 @@ if CASTLE_PREFETCH then
         'editor.lua',
         'gfx3D.lua',
         'voxel.lua',
+        'agent.lua',
         'mesh_util.lua',
     })
 end
@@ -42,6 +43,7 @@ cpml = GFX.cpml;
 Mesh = require("mesh_util");
 Shaders = require("shaders");
 Voxel = require("voxel");
+Agent = require("agent");
 ui = castle.ui;
 cjson = require("cjson");
 
@@ -137,8 +139,6 @@ function castle.uiupdate()
 
 end
 
-
-
 function Gameplay.renderScene(player)
 
   GFX.setCanvas3D(State.canvas3D)
@@ -154,10 +154,12 @@ function Gameplay.renderScene(player)
   GFX.setCameraView(player.camera.position, player.camera.look_at, UP);
   GFX.setCameraPerspective(player.camera.fovy, w/h, CAMERA_NEAR_CLIP, CAMERA_FAR_CLIP);
   
-  Voxel.draw(State.grid)
-  
-    
+  Voxel.draw(State.grid);
+  Agent.drawSystem(State.agentSystem);
+
   GFX.setShader(GFX.Shader.Default);
+
+  -- Draw Selection Highlight
   if (Editor.selection) then
     local c = Editor.selection.center;
   
@@ -223,8 +225,6 @@ function PostProcess.render()
     love.graphics.rectangle("fill", mx, my, w - mx * 2, h - my * 2);
 
     love.graphics.setColor(1.0, 1.0, 1.0, 1.0);
-   
-
 
    love.graphics.printf(PostProcess.text , mx * 2, my * 2, w - mx * 4);
     
@@ -356,9 +356,9 @@ function Gameplay.collidePlayer(player, dt, collisionData)
     ll = {newPos.x - PLAYER_SIZE.x * 2, newPos.y - PLAYER_SIZE.y * 2, newPos.z - PLAYER_SIZE.z * 2},
     ur = {newPos.x + PLAYER_SIZE.x * 2, newPos.y + PLAYER_SIZE.y * 2, newPos.z + PLAYER_SIZE.z * 2}
   };
-  
-  player.standing = false;
-  
+    
+  collisionData.standing = false;
+
   local standingVoxels = {
   }
   
@@ -366,6 +366,35 @@ function Gameplay.collidePlayer(player, dt, collisionData)
   
   local standVoxelCount = 0;
   
+  Agent.collidePlayer(State.agentSystem, player, function(agent)
+    
+    local props = Agent.getProperties(agent);
+    if (props.fluid) then
+      return
+    end
+
+    local abb = props.getAABB(agent);
+    
+    if (not Voxel.intersectAABBs(npbb, abb)) then
+      return;
+    end
+
+    if (opbb.ll[2] >= abb.ur[2] and npbb.ll[2] < abb.ur[2] --[[and not vup1 and not vup2]]) then
+    
+      if (props.canStand) then
+        collisionData.standing = true;
+      end
+
+      if(props.onPlayerStep) then
+        props.onPlayerStep(agent);
+      end
+
+    elseif (false) then
+    
+    
+    end
+  end);
+
   Voxel.intersectGridAABB(State.grid, epbb, function(v, c)
         
     local vbb = {
@@ -375,16 +404,16 @@ function Gameplay.collidePlayer(player, dt, collisionData)
     
     local props = Voxel.getPropertyForType(v.type);
     
-    if (props.nearby) then
-      props.nearby(collisionData, v, npbb, vbb);
+    if (props.onNearby) then
+      props.onNearby(collisionData, v, npbb, vbb);
     end
     
     if (not Voxel.intersectAABBs(npbb, vbb)) then
       return;
     end
   
-    if (props.collide) then
-      props.collide(collisionData, v, npbb, vbb);
+    if (props.onCollide) then
+      props.onCollide(collisionData, v, npbb, vbb);
     end
     
     if (props.fluid) then
@@ -405,7 +434,7 @@ function Gameplay.collidePlayer(player, dt, collisionData)
       local bounceAmt =  math.min(-player.velocity.y * bounce, MAX_BOUNCE);
       player.velocity.y = math.max(bounceAmt, player.velocity.y);
       newPos.y = vbb.ur[2] + PLAYER_SIZE.y + epsi;
-      player.standing = true;
+      collisionData.standing = true;
       standVoxelCount = standVoxelCount + 1;
       standingVoxels[standVoxelCount] = v;
     --Z Positive
@@ -481,14 +510,14 @@ function Gameplay.getPlayerDamping(player, collisionData, inputs, dt)
   
   local onIce = true;
   
-  for i, v in pairs(collisionData.standingVoxels) do
+  for _, v in pairs(collisionData.standingVoxels) do
     if (v.type ~= Voxel.BLOCK_INDEX_MAP["ice"]) then
       onIce = false;
     end
   end
   
   
-  if (player.standing) then
+  if (collisionData.standing) then
     if (vec3.len(inputs.move) < 0.01) then
       groundDamp = math.min(1.0, 15 * dt);
       if (onIce) then
@@ -505,8 +534,7 @@ function Gameplay.getPlayerDamping(player, collisionData, inputs, dt)
     end
   end
 
-  
-  if (player.inWater) then
+  if (player.swimming) then
     airDamp = WATER_DAMPING * dt;
     groundDamp = WATER_DAMPING * dt;
   end
@@ -521,7 +549,6 @@ end
 
 function Gameplay.updatePlayer(player, inputs, dt)
     
-  
   dt = math.min(dt, 0.1); 
 
   Gameplay.updatePlayerOrientation(player, inputs, dt);
@@ -529,38 +556,36 @@ function Gameplay.updatePlayer(player, inputs, dt)
   local speed = PLAYER_SPEED * dt;
   
   --player.camera.position = player.camera.position + (inputs.move * (dt * 5));
-  
-  --newPos = player.camera.position + (player.lookDir * inputs.move.z * speed) + (player.rightDir * inputs.move.x * speed);
-  
+  --newPos = player.camera.position + (player.lookDir * inputs.move.z * speed) + (player.rightDir * inputs.move.x * speed);  
   
   --Different Movement Circumstances
+
   player.flying = false;
   if (Editor.isActive and not Editor.gravity) then
     player.velocity = player.velocity + (player.lookDir * inputs.move.z * speed * 5) + (player.rightDir * inputs.move.x * speed * 5);
     player.flying = true;
-  elseif (player.inWater) then
+  elseif (player.swimming) then
     player.velocity = player.velocity + (WATER_GRAVITY * dt);
     player.velocity = player.velocity + (player.lookDir * inputs.move.z * speed) + (player.rightDir * inputs.move.x * speed);
   else
     player.velocity = player.velocity + (GRAVITY * dt);
     player.velocity = player.velocity + (player.forwardDir * inputs.move.z * speed) + (player.rightDir * inputs.move.x * speed);
   end
+      
+  local collisionData = {};
   
-  if (inputs.jump == 1 and player.standing) then
+  --Collide player with voxels and agents
+  Gameplay.collidePlayer(player, dt, collisionData);
+ 
+  if (inputs.jump == 1 and collisionData.standing) then
     player.velocity = player.velocity + (JUMP);
     --player.velocity.y = (JUMP * dt).y;
   end
   
-  if (inputs.jump == 1 and player.inWater) then
+  if (inputs.jump == 1 and player.swimming) then
     player.velocity.y = math.max(1.0, player.velocity.y);
   end
-    
-  local collisionData = {};
-  
-  
-  --Collide player with voxels
-  Gameplay.collidePlayer(player, dt, collisionData);
- 
+
   local damping = Gameplay.getPlayerDamping(player, collisionData, inputs, dt);
   
   --Todo Make safe
@@ -595,7 +620,7 @@ function Gameplay.updatePlayer(player, inputs, dt)
     Level.loadLevelFromId(collisionData.nextLevel);
   end
   
-  player.inWater = collisionData.water;
+  player.swimming = collisionData.water;
   
 end
 
@@ -667,7 +692,8 @@ function Gameplay.update(dt)
   if (not State.levelFinished) then
     State.time = State.time + dt;
   end
-  
+
+  Agent.updateSystem(State.agentSystem);  
   Gameplay.updatePlayer(Player1, Gameplay.getInputs(dt), dt);
 
 end
@@ -729,9 +755,8 @@ function client.load()
   love.resize();
   
   State.grid = Voxel.newStarterGrid();
+  State.agentSystem = Agent.newAgentSystem();
   Gameplay.teleportPlayerToStart(Player1);
-  
-  
   
   --loadLevelFromId("practice0");
 end
@@ -807,6 +832,7 @@ function Level.loadLevel(level)
   
   State.grid = level.grid;
   Voxel.reload(State.grid);
+  State.agentSystem = Agent.newAgentSystem();
   Gameplay.teleportPlayerToStart(Player1);
 
 end

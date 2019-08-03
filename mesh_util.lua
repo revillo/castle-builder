@@ -75,6 +75,7 @@ MeshUtil.makeCubeFace = function(a, b, c, d, ou, ov, faceIndex)
   
   ou = ou or 0;
   ov = ov or 0;
+  faceIndex = faceIndex or 0;
   --clr = clr or {1,1,1,1};
   --[[
   return {
@@ -99,46 +100,48 @@ MeshUtil.makeCubeFace = function(a, b, c, d, ou, ov, faceIndex)
   };
 end
 
-MeshUtil.Cube = (function()
-  local x0, x1 = 0.5, -0.5;
-  local y0, y1 = -0.5, 0.5;
-  local z0, z1 = -0.5, 0.5;
-  
-  local a = {x0, y0, z0};
-  local b = {x1, y0, z0};
-  local c = {x1, y1, z0};
-  local d = {x0, y1, z0};
-  
-  local e = {x0, y0, z1};
-  local f = {x1, y0, z1};
-  local g = {x1, y1, z1};
-  local h = {x0, y1, z1};
-  
-  local faces = {
-    MeshUtil.makeCubeFace(a, b, c, d),
-    MeshUtil.makeCubeFace(b, f, g, c),
-    MeshUtil.makeCubeFace(d, c, g, h),  
-    MeshUtil.makeCubeFace(e, a, d, h),
-    MeshUtil.makeCubeFace(f, e, h, g),
-    MeshUtil.makeCubeFace(a, e, f, b)
-  };
-  
-  
-  local verts = {};
-  local index = 1;
-  
-  for f = 1, 6 do
-      for v = 1, 6 do
-        verts[index] = faces[f][v]; 
-        index = index + 1;
-      end    
-  end
-  
-   return love.graphics.newMesh(
-      BASIC_ATTRIBUTES, verts, "triangles", "static"
-    );
-      
-end)()
+MeshUtil.makeCube = function(sx, sy, sz, ox, oy)
+
+    local x0, x1 = sx, -sx;
+    local y0, y1 = -sy, sy;
+    local z0, z1 = -sz, sz;
+    
+    local a = {x0, y0, z0};
+    local b = {x1, y0, z0};
+    local c = {x1, y1, z0};
+    local d = {x0, y1, z0};
+    
+    local e = {x0, y0, z1};
+    local f = {x1, y0, z1};
+    local g = {x1, y1, z1};
+    local h = {x0, y1, z1};
+    
+    local faces = {
+      MeshUtil.makeCubeFace(a, b, c, d, ox, oy, 4),
+      MeshUtil.makeCubeFace(b, f, g, c, ox, oy, 1),
+      MeshUtil.makeCubeFace(d, c, g, h, ox, oy, 3),  
+      MeshUtil.makeCubeFace(e, a, d, h, ox, oy, 0),
+      MeshUtil.makeCubeFace(f, e, h, g, ox, oy, 5),
+      MeshUtil.makeCubeFace(a, e, f, b, ox, oy, 2)
+    };
+    
+    local verts = {};
+    local index = 1;
+    
+    for f = 1, 6 do
+        for v = 1, 6 do
+          verts[index] = faces[f][v]; 
+          index = index + 1;
+        end    
+    end
+    
+     return love.graphics.newMesh(
+        BASIC_ATTRIBUTES, verts, "triangles", "static"
+      );
+
+end;
+
+MeshUtil.Cube = MeshUtil.makeCube(0.5, 0.5, 0.5, 0, 0);
 
 
 return MeshUtil;

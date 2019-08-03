@@ -21,7 +21,7 @@ Voxel.BLOCK_PROPERTIES = {
   
   ["end"] = {
     offset = {4, 0},
-    collide = function(collisionData, voxel) 
+    onCollide = function(collisionData, voxel) 
       collisionData.finish = true;
       collisionData.nextLevel = voxel.nextLevel;
     end,
@@ -55,7 +55,7 @@ Voxel.BLOCK_PROPERTIES = {
   
   lava = {
     offset = {7, 0},
-    collide = function(collisionData, voxel, pbb, vbb)
+    onCollide = function(collisionData, voxel, pbb, vbb)
       if (Voxel.overlapAABBs(pbb, vbb) > 0.1) then
         collisionData.fire = true;
       end
@@ -66,7 +66,7 @@ Voxel.BLOCK_PROPERTIES = {
   water = {
     offset = {0, 1},
     color = {0, 1, 1, 0.7},
-    collide = function(collisionData) 
+    onCollide = function(collisionData) 
       collisionData.water = true;
     end,
     transparent = true,
@@ -74,21 +74,17 @@ Voxel.BLOCK_PROPERTIES = {
   },
   
   leaves = {
-    
     offset = {2,2}
-  
   },
   
   
   stone = {
-    
     offset = {4,2}
-  
   },
   
   info = {
     offset = {0, 2},
-    nearby = function(collisionData, voxel, pbb, vbb)
+    onNearby = function(collisionData, voxel, pbb, vbb)
         
       if (Voxel.intersectAABBs(pbb, Voxel.expandAABB(vbb, {0.1, 0.1, 0.1}))) then
         collisionData.info = voxel.msg or "...";
@@ -121,12 +117,10 @@ end
 
 local Images = {
   tiles = love.graphics.newImage('tiles2.png'),
-  tilesBump = love.graphics.newImage('tiles2.png', {mipmaps = false})
+  tilesBump = love.graphics.newImage('tiles2.png')
 }
 
 Images.tilesBump:setFilter("nearest", "linear");
---Images.tilesBump:setMipmapFilter("linear");
-
 Images.tiles:setFilter("nearest", "nearest");
 
 
@@ -429,86 +423,6 @@ Try to reach the <1,0,0>END BLOCK<1,1,1>!]]
   
 end
 
-function Voxel.newPracticeGridDEP()
-  
-  local cubeList = {};
-  local cubeListIndex = 0;
-  local tileType = Voxel.BLOCK_INDEX_MAP["tile"];
-  local brickType = Voxel.BLOCK_INDEX_MAP["brick"];
-  local startType = Voxel.BLOCK_INDEX_MAP["start"];
-  local endType = Voxel.BLOCK_INDEX_MAP["end"];
-  local waterType = Voxel.BLOCK_INDEX_MAP["water"];
-  local rubberType = Voxel.BLOCK_INDEX_MAP["rubber"];
-  
-  for x = 1, 16 do for z = 1, 16 do
-      cubeListIndex = cubeListIndex + 1;
-
-      cubeList[cubeListIndex] = {
-        center = {x - 8, 0, z - 8},
-        type = tileType
-      };
-      
-  end end
-  
-  for x = 7, 10 do for z = 7, 10 do
-    
-    cubeListIndex = cubeListIndex + 1;
-
-    cubeList[cubeListIndex] = {
-      center = {x - 5, z - 6, z - 7},
-      type = brickType
-    };
-  
-  end end
-  
-  cubeListIndex = cubeListIndex + 1;
-  
-  cubeList[cubeListIndex] = {
-    center = {0, 1, -5},
-    type = startType
-  };
-  
-  cubeListIndex = cubeListIndex + 1;
-  cubeList[cubeListIndex] = {
-    center = {3, 1, 5},
-    type = endType;
-  }
-  
-  local waterMatrix = {};
-  
-  for x = 1, 5 do for y = 1, 5 do for z = 1, 5 do
-    
-    local cube = {
-      center = {x - 8, y, z},
-      type = waterType;
-    }
-    
-    Matrix.insert(waterMatrix, cube, x - 8, y, z);
-  
-  end end end
-  
-  local matrix = {};
-  
-  for i = 1, cubeListIndex do
-  
-    local center = cubeList[i].center;
-    local x, y, z = center[1], center[2], center[3];
-    Matrix.insert(matrix, cubeList[i], x, y, z);
-
-  end
-
-  
-  return {
-    matrices = {waterMatrix, matrix},
-    startBlock = {0, 1, -5},
-    endBlock = {3, 1, 5},
-    matrixIndex = 2,
-    matrixVoxelCount = cubeListIndex,
-    dirtyMeshes = {[1] = true, [2] = true}
-  }
-  
-end
-
 local min = math.min;
 local sign = function (x) return x / math.abs(x) end;
 
@@ -555,7 +469,7 @@ local function advanceRay(p, d)
   p.y = p.y + d.y * (tStep);
   p.z = p.z + d.z * (tStep);
   
-  return p, t3nrm;
+  return p, t3nrm, tStep;
 
 end
 
@@ -567,19 +481,18 @@ function Voxel.traceRay(grid, ray)
   
   t3pos:set(o.x, o.y, o.z);
 
-  for i = 1, 100 do
+  for _ = 1, 100 do
     
-    local p, n = advanceRay(t3pos, d);
+    local p, n, tStep = advanceRay(t3pos, d);
+    t = t + tStep;
     local vox = Voxel.get(grid, p.x, p.y, p.z);
     if (vox) then
-      return vox, {round(p.x), round(p.y), round(p.z)},  p, n;
+      return vox, {round(p.x), round(p.y), round(p.z)}, t, n;
     end
    
   end
 
- 
-  return nil, nil, nil;
-  
+  return nil, nil, nil;  
   
 end
 
@@ -746,7 +659,7 @@ function Voxel.sortWater(grid)
     centers[i].distance = temp[1] * temp[1] + temp[2] * temp[2] + temp[3] * temp[3];  
   end
   
-  function faceSorter(a, b)
+  local function faceSorter(a, b)
     return a.distance > b.distance;
   end
   
@@ -914,6 +827,16 @@ function Voxel.postify(grid)
   safeGrid.waterMeshData = nil;
   
   return safeGrid;
+
+end
+
+function Voxel.intersectRayAABB(ray, abb)
+
+  local o = ray.origin;
+  local d = ray.direction;
+
+  --todo
+  return nil;
 
 end
 
