@@ -108,6 +108,10 @@ function utils.round(value, precision)
 	return value >= 0 and floor(value+0.5) or ceil(value-0.5)
 end
 
+function utils.sign(value)
+	return value / math.abs(value);
+end
+
 --- Wrap `value` around if it exceeds `limit`.
 -- @param value
 -- @param limit

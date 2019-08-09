@@ -20,7 +20,7 @@ local Shader = {
       
         vec4 effect( vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords )
         {
-          if (mod(screen_coords.x + screen_coords.y, 10.0) < 5.0) {
+          if (mod(screen_coords.x + screen_coords.y, 30.0) < 20.0) {
             discard;
             return vec4(0.0, 0.0, 0.0, 0.0);
           }
@@ -53,6 +53,7 @@ local vp = mat4();
 local pickMatrix = mat4();
 local tanX, tanY = 0;
 
+
 function viewLook(out, eye, look_at, up)
 	local z_axis = (eye - look_at):normalize()
 	local x_axis = up:cross(z_axis):normalize()
@@ -83,6 +84,15 @@ function setUniform(name, ...)
   if (activeShader:hasUniform(name)) then
     activeShader:send(name,  ...);
   end
+end
+
+local matrixTranspose = mat4();
+
+function setUniformMat4(name, matrix4)
+
+  mat4.transpose(matrixTranspose, matrix4);
+  setUniform(name, matrixTranspose);
+
 end
   
 return {
@@ -167,16 +177,16 @@ return {
 
     modelMatrix = modelMatrix or mi;
     
-    setUniform("model", modelMatrix);
-    setUniform("view", viewMatrix);
+    setUniformMat4("model", modelMatrix);
+    setUniformMat4("view", viewMatrix);
+
     setUniform("time", love.timer.getTime() - startTime);
     setUniform("cameraPos", {cameraMatrix[13], cameraMatrix[14], cameraMatrix[15]});
     
     mv:mul(modelMatrix, viewMatrix);
     mvp:mul(mv, projectionMatrix);
     
-    mat4.transpose(mvpt, mvp); 
-    activeShader:send("mvp", mvpt);
+    setUniformMat4("mvp", mvp);
   
     love.graphics.draw(mesh);
   end

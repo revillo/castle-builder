@@ -45,7 +45,8 @@ local files = {
 	"mat4",
 	"utils",
 	"vec2",
-	"vec3",
+  "vec3",
+  "intersect",
 }
 
 for _, file in ipairs(files) do

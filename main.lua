@@ -33,7 +33,7 @@ function SecondsToClock(seconds)
     mins = string.format("%02.f", math.floor(seconds/60));
     --secs = string.format("%02.f", math.floor(seconds - hours*3600 - mins *60));
     secs = string.format("%02.f", math.floor(seconds - mins * 60));
-    return " "..mins..":"..secs
+    return mins..":"..secs
   end
 end
 
@@ -100,6 +100,23 @@ Level = {};
 
 Editor = require("editor");
 
+function Gameplay.globalIntersectAABB(aabb, voxelCallback, agentCallback, playerCallback)
+  Voxel.intersectGridAABB(State.grid, aabb, voxelCallback);
+
+  --todo agent to agent collisions w/o self collisions
+  Agent.intersectSystemAABB(State.agentSystem, aabb, agentCallback or voxelCallback);
+   
+ 
+  local player = State.player1;
+
+  local pbb = Voxel.makeAABB_CPML(player.position, player.size);
+  if (Voxel.intersectAABBs(pbb, aabb)) then
+    (playerCallback or voxelCallback)(player);
+  end
+ 
+
+end
+
 function Gameplay.teleportPlayer(player, x, y, z)
     player.position:set(x,y,z);
     player.velocity:set(0,0,0);
@@ -155,12 +172,14 @@ function Gameplay.renderScene(player)
   GFX.setCameraPerspective(player.camera.fovy, w/h, CAMERA_NEAR_CLIP, CAMERA_FAR_CLIP);
   
   Voxel.draw(State.grid);
+
+  GFX.setCameraView(player.camera.position, player.camera.look_at, UP);
   Agent.drawSystem(State.agentSystem);
 
   GFX.setShader(GFX.Shader.Default);
 
   -- Draw Selection Highlight
-  if (Editor.selection) then
+  if (Editor.isActive and Editor.selection) then
     local c = Editor.selection.center;
   
     gt = mat4();
@@ -205,9 +224,9 @@ function PostProcess.render()
    
    if (PostProcess.levelTime) then
    
-    love.graphics.setColor(1.0, 1.0, 1.0, 1.0 - t);
-    love.graphics.printf("Finish Time:", 0, 100, w, "center");
-    love.graphics.printf(SecondsToClock(PostProcess.levelTime), 0, 150, w, "center");
+      love.graphics.setColor(1.0, 1.0, 1.0, 1.0 - t);
+      love.graphics.printf("Finish Time:", 0, 100, w, "center");
+      love.graphics.printf(SecondsToClock(PostProcess.levelTime), 0, 150, w, "center");
     
    end
     
@@ -230,6 +249,8 @@ function PostProcess.render()
     
     if (t >= 1) then
       PostProcess.effect = "none";
+      PostProcess.levelTime = nil;
+      PostProcess.text = nil;
     end
   end
 
@@ -330,27 +351,77 @@ function PostProcess.playWinOverlay()
   PostProcess.text = "Win!!";
   PostProcess.text = nil;
   
-  PostProcess.levelTime = State.time;
-  
+  if (Editor.isActive) then
+    PostProcess.levelTime = nil;
+  else
+    PostProcess.levelTime = State.time;
+  end
   
 end
+
+function collidePlayerAABB(player, opbb, npbb, vbb, newPos, c, bounce, standCallback)
+
+  local vgrid = State.grid;
+  
+  local vup1, vup2      = Voxel.isSolid(vgrid, c[1], c[2] + 1, c[3]), Voxel.isSolid(vgrid, c[1], c[2] + 2, c[3]);
+  local vdown1, vdown2  = Voxel.isSolid(vgrid, c[1], c[2] - 1, c[3]), Voxel.isSolid(vgrid, c[1], c[2] - 2, c[3]);
+  local vforward, vback = Voxel.isSolid(vgrid, c[1], c[2], c[3] + 1), Voxel.isSolid(vgrid, c[1], c[2], c[3] - 1);
+  local vleft, vright   = Voxel.isSolid(vgrid, c[1] - 1, c[2], c[3]), Voxel.isSolid(vgrid, c[1] + 1, c[2], c[3]);
+  
+  local epsi = 0.0001;
+
+  --Y Negative
+  if (opbb.ll[2] >= vbb.ur[2] and npbb.ll[2] < vbb.ur[2] and not vup1 and not vup2) then
+    local bounceAmt =  math.min(-player.velocity.y * bounce, MAX_BOUNCE);
+    player.velocity.y = math.max(bounceAmt, player.velocity.y);
+    newPos.y = vbb.ur[2] + PLAYER_SIZE.y + epsi;
+    standCallback();
+  --Z Positive
+  elseif (opbb.ur[3] <= vbb.ll[3] and npbb.ur[3] > vbb.ll[3] and not vback) then
+    local bounceAmt =  math.max(-player.velocity.z * bounce, -MAX_BOUNCE);
+    player.velocity.z = math.min(bounceAmt, player.velocity.z);
+    newPos.z = vbb.ll[3] - PLAYER_SIZE.z - epsi;  
+  --X Positive
+  elseif (opbb.ur[1] <= vbb.ll[1] and npbb.ur[1] > vbb.ll[1] and not vleft) then
+    local bounceAmt =  math.max(-player.velocity.x * bounce, -MAX_BOUNCE);
+    player.velocity.x = math.min(bounceAmt, player.velocity.x);
+    newPos.x = vbb.ll[1] - PLAYER_SIZE.x - epsi;  
+  --Y Positive
+  elseif (opbb.ur[2] <= vbb.ll[2] and npbb.ur[2] > vbb.ll[2] and not vdown1 and not vdown2) then
+    local bounceAmt =  math.max(-player.velocity.y * bounce, -MAX_BOUNCE);
+    player.velocity.y = math.min(bounceAmt, player.velocity.y);
+    newPos.y = vbb.ll[2] - PLAYER_SIZE.y - epsi;   
+  -- Z Negative
+  elseif (opbb.ll[3] >= vbb.ur[3] and npbb.ll[3] < vbb.ur[3] and not vforward) then
+    local bounceAmt =  math.min(-player.velocity.z * bounce, MAX_BOUNCE);
+    player.velocity.z = math.max(bounceAmt, player.velocity.z);
+    newPos.z = vbb.ur[3] + PLAYER_SIZE.z + epsi;
+  --X Negative
+  elseif (opbb.ll[1] >= vbb.ur[1] and npbb.ll[1] < vbb.ur[1] and not vright) then
+    local bounceAmt =  math.min(-player.velocity.x * bounce, MAX_BOUNCE);
+    player.velocity.x = math.max(bounceAmt, player.velocity.x);
+    newPos.x = vbb.ur[1] + PLAYER_SIZE.x + epsi;
+  end  
+
+end
+
+
 
 local newPos = vec3();
 
 function Gameplay.collidePlayer(player, dt, collisionData)
     
   newPos =  player.position + (player.velocity * dt);
+
+  if (player.velocityMatch) then
+    newPos = newPos + player.velocityMatch * dt;
+  end
+
   local oldPos = player.position;
   
-  local opbb = {
-    ll = {oldPos.x - PLAYER_SIZE.x, oldPos.y - PLAYER_SIZE.y, oldPos.z - PLAYER_SIZE.z},
-    ur = {oldPos.x + PLAYER_SIZE.x, oldPos.y + PLAYER_SIZE.y, oldPos.z + PLAYER_SIZE.z}
-  };
+  local opbb = Voxel.makeAABB_CPML(oldPos, PLAYER_SIZE);
   
-  local npbb = {
-    ll = {newPos.x - PLAYER_SIZE.x, newPos.y - PLAYER_SIZE.y, newPos.z - PLAYER_SIZE.z},
-    ur = {newPos.x + PLAYER_SIZE.x, newPos.y + PLAYER_SIZE.y, newPos.z + PLAYER_SIZE.z}
-  };
+  local npbb = Voxel.makeAABB_CPML(newPos, PLAYER_SIZE);
   
   local epbb = {
     ll = {newPos.x - PLAYER_SIZE.x * 2, newPos.y - PLAYER_SIZE.y * 2, newPos.z - PLAYER_SIZE.z * 2},
@@ -365,7 +436,11 @@ function Gameplay.collidePlayer(player, dt, collisionData)
   local vgrid = State.grid;
   
   local standVoxelCount = 0;
-  
+
+  player.velocityMatch = nil;
+
+
+  --Todo use intersectSystemAABB instead
   Agent.collidePlayer(State.agentSystem, player, function(agent)
     
     local props = Agent.getProperties(agent);
@@ -379,20 +454,20 @@ function Gameplay.collidePlayer(player, dt, collisionData)
       return;
     end
 
-    if (opbb.ll[2] >= abb.ur[2] and npbb.ll[2] < abb.ur[2] --[[and not vup1 and not vup2]]) then
+    collidePlayerAABB(player, opbb, npbb, abb, newPos, agent.center, props.bounciness or 0, function()
     
       if (props.canStand) then
         collisionData.standing = true;
       end
 
       if(props.onPlayerStep) then
-        props.onPlayerStep(agent);
+        props.onPlayerStep(agent, player);
       end
 
-    elseif (false) then
-    
-    
-    end
+    end);
+
+
+
   end);
 
   Voxel.intersectGridAABB(State.grid, epbb, function(v, c)
@@ -420,49 +495,14 @@ function Gameplay.collidePlayer(player, dt, collisionData)
       return;
     end
     
-    local vup1, vup2      = Voxel.isSolid(vgrid, c[1], c[2] + 1, c[3]), Voxel.isSolid(vgrid, c[1], c[2] + 2, c[3]);
-    local vdown1, vdown2  = Voxel.isSolid(vgrid, c[1], c[2] - 1, c[3]), Voxel.isSolid(vgrid, c[1], c[2] - 2, c[3]);
-    local vforward, vback = Voxel.isSolid(vgrid, c[1], c[2], c[3] + 1), Voxel.isSolid(vgrid, c[1], c[2], c[3] - 1);
-    local vleft, vright   = Voxel.isSolid(vgrid, c[1] - 1, c[2], c[3]), Voxel.isSolid(vgrid, c[1] + 1, c[2], c[3]);
+    local bounce = props.bounciness or 0.0;
     
-    local epsi = 0.0001;
-    
-    local bounce = props.bounciness or 0.0;    
-    
-    --Y Negative
-    if (opbb.ll[2] >= vbb.ur[2] and npbb.ll[2] < vbb.ur[2] and not vup1 and not vup2) then
-      local bounceAmt =  math.min(-player.velocity.y * bounce, MAX_BOUNCE);
-      player.velocity.y = math.max(bounceAmt, player.velocity.y);
-      newPos.y = vbb.ur[2] + PLAYER_SIZE.y + epsi;
+    collidePlayerAABB(player, opbb, npbb, vbb, newPos, c, bounce, function()
       collisionData.standing = true;
       standVoxelCount = standVoxelCount + 1;
       standingVoxels[standVoxelCount] = v;
-    --Z Positive
-    elseif (opbb.ur[3] <= vbb.ll[3] and npbb.ur[3] > vbb.ll[3] and not vback) then
-      local bounceAmt =  math.max(-player.velocity.z * bounce, -MAX_BOUNCE);
-      player.velocity.z = math.min(bounceAmt, player.velocity.z);
-      newPos.z = vbb.ll[3] - PLAYER_SIZE.z - epsi;  
-    --X Positive
-    elseif (opbb.ur[1] <= vbb.ll[1] and npbb.ur[1] > vbb.ll[1] and not vleft) then
-      local bounceAmt =  math.max(-player.velocity.x * bounce, -MAX_BOUNCE);
-      player.velocity.x = math.min(bounceAmt, player.velocity.x);
-      newPos.x = vbb.ll[1] - PLAYER_SIZE.x - epsi;  
-    --Y Positive
-    elseif (opbb.ur[2] <= vbb.ll[2] and npbb.ur[2] > vbb.ll[2] and not vdown1 and not vdown2) then
-      local bounceAmt =  math.max(-player.velocity.y * bounce, -MAX_BOUNCE);
-      player.velocity.y = math.min(bounceAmt, player.velocity.y);
-      newPos.y = vbb.ll[2] - PLAYER_SIZE.y - epsi;   
-    -- Z Negative
-    elseif (opbb.ll[3] >= vbb.ur[3] and npbb.ll[3] < vbb.ur[3] and not vforward) then
-      local bounceAmt =  math.min(-player.velocity.z * bounce, MAX_BOUNCE);
-      player.velocity.z = math.max(bounceAmt, player.velocity.z);
-      newPos.z = vbb.ur[3] + PLAYER_SIZE.z + epsi;
-    --X Negative
-    elseif (opbb.ll[1] >= vbb.ur[1] and npbb.ll[1] < vbb.ur[1] and not vright) then
-      local bounceAmt =  math.min(-player.velocity.x * bounce, MAX_BOUNCE);
-      player.velocity.x = math.max(bounceAmt, player.velocity.x);
-      newPos.x = vbb.ur[1] + PLAYER_SIZE.x + epsi;
-    end  
+    end);
+   
       
     npbb = {
       ll = {newPos.x - PLAYER_SIZE.x, newPos.y - PLAYER_SIZE.y, newPos.z - PLAYER_SIZE.z},
@@ -472,6 +512,7 @@ function Gameplay.collidePlayer(player, dt, collisionData)
   end);
 
   collisionData.standingVoxels = standingVoxels;
+  collisionData.standingVoxelCount = standVoxelCount;
   player.position = newPos;
 
 end
@@ -509,6 +550,10 @@ function Gameplay.getPlayerDamping(player, collisionData, inputs, dt)
 
   
   local onIce = true;
+
+  if (collisionData.standingVoxelCount == 0) then
+    onIce = false;
+  end
   
   for _, v in pairs(collisionData.standingVoxels) do
     if (v.type ~= Voxel.BLOCK_INDEX_MAP["ice"]) then
@@ -611,7 +656,7 @@ function Gameplay.updatePlayer(player, inputs, dt)
   end
   
   if (collisionData.finish) then
-    if (Editor.isActive and Editor.selection and Editor.selection.voxel.type == Voxel.BLOCK_INDEX_MAP["end"]) then
+    if (Editor.isActive and Editor.selection and Editor.selection.voxel and Editor.selection.voxel.type == Voxel.BLOCK_INDEX_MAP["end"]) then
       return
     end
     
@@ -666,9 +711,11 @@ function Gameplay.getInputs(dt)
     inputs.jump = 1;
   end
   
+  --[[
   if (love.keyboard.isDown("escape")) then
     Gameplay.setMouseControlCamera(false);
   end
+  ]]
   
   if (State.mouseCamera) then
     
@@ -689,11 +736,11 @@ local DTSave = 0;
 
 function Gameplay.update(dt)
   
-  if (not State.levelFinished) then
+  if (not Editor.isActive and not State.levelFinished) then
     State.time = State.time + dt;
   end
 
-  Agent.updateSystem(State.agentSystem);  
+  Agent.updateSystem(State.agentSystem, dt);  
   Gameplay.updatePlayer(Player1, Gameplay.getInputs(dt), dt);
 
 end
@@ -711,7 +758,24 @@ function Gameplay.render()
   --love.graphics.print(DTSave, 0, 0);
   
   love.graphics.setColor(1,1,1,1);
-  love.graphics.print(SecondsToClock(State.time), 0, 0);
+  if (Editor.isActive) then
+    Editor.printTooltip();
+  else
+    love.graphics.printf(SecondsToClock(State.time)..[[ 
+[Enter] - Edit Mode]], 5, 0, 400);
+  end
+end
+
+function client.keypressed(key)
+
+  if (Editor.isActive) then
+    Editor.keypressed(key);
+  else
+    if (key == "return") then
+      Editor.enterEditMode();
+    end
+  end
+
 end
 
 function client.update(dt)
@@ -749,15 +813,42 @@ function client.draw()
 
     Gameplay.render();
 
+    
+    if (Editor.isActive) then
+      Editor.drawOverlay();
+    else
+      local w, h = love.graphics.getDimensions();
+
+      love.graphics.setColor(1,1,1,0.4);
+      love.graphics.rectangle("fill", w * 0.5 - 10, h * 0.5 - 1, 20,  2);
+      love.graphics.rectangle("fill", w * 0.5 - 1, h * 0.5 - 10, 2,  20);
+    end
+
+  
+    
 end
 
 function client.load()
   love.resize();
-  
+
+  font = love.graphics.newImageFont("imagefont.png",
+    " abcdefghijklmnopqrstuvwxyz" ..
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ0" ..
+    "123456789.,!?-+/():;%&`'*#=[]\"")
+
+  love.graphics.setFont(font);
+
   State.grid = Voxel.newStarterGrid();
   State.agentSystem = Agent.newAgentSystem();
   Gameplay.teleportPlayerToStart(Player1);
   
+
+  network.async(function()
+    local levels = castle.storage.get("levels") or "";
+    local levelsArray = PostProcess.split(levels, ";");
+    Editor.userLevels = levelsArray;
+  end);
+
   --loadLevelFromId("practice0");
 end
 
@@ -769,7 +860,7 @@ function castle.postopened(post)
   if (version < 3) then
     Level.loadLevel({grid = Voxel.newStarterGrid()});
   else
-    Level.loadLevel({grid = Voxel.unpostify(post.data.grid)});
+    Level.loadLevel(Level.deserialize(post.data));
   end
   
   Editor.isActive = false;
@@ -798,21 +889,8 @@ function Level.loadLevelFromId(levelId)
     asyncLevelLoading = love.timer.getTime();
 
     print("Loading", levelId);
-    
-    network.async(function()
-      
-      local encodedLevel = require("levels/"..levelId..".lua");
-      if (encodedLevel) then
-        local data = cjson.decode(encodedLevel);
-        if (data.grid) then
-          data.grid = Voxel.unpostify(data.grid);
-          Editor.loadLevelName = levelId;
-          Level.loadLevel(data);
-        end
-      end
-    
-      
-    end);
+
+    Level.loadFromUrl("levels/"..levelId..".lua", levelId);
     
     --[[
     local encodedLevel = require("levels/"..levelId..".lua");
@@ -831,33 +909,124 @@ end
 function Level.loadLevel(level)
   
   State.grid = level.grid;
+  State.agentSystem = level.agentSystem or Agent.newAgentSystem();
   Voxel.reload(State.grid);
-  State.agentSystem = Agent.newAgentSystem();
+  Agent.resetSystem(State.agentSystem);
   Gameplay.teleportPlayerToStart(Player1);
+  Editor.selection = nil;
 
 end
 
-function Level.saveLevel(filename)
+function Level.deserialize(data)
+
+  data.grid = Voxel.unpostify(data.grid);
+  data.agentSystem = Agent.unpostify(data.agentSystem) or Agent.newAgentSystem();
+
+  print(data.agentSystem.agentIndex);
+end
+
+function Level.serialize()
 
   local data = {};
   data.grid = Voxel.postify(State.grid);
+  data.agentSystem = Agent.postify(State.agentSystem)
   data.version = PostVersion;
   data.blockTypes = Voxel.BLOCK_TYPES;
 
-  local file = io.open("C:/level.lua", "w+");
+  return data;
 
-  file:write("return [["..cjson.encode(data).."]]");
+end
+
+function Level.saveLevelToDisk(filepath)
+
+  local file = io.open(filepath, "w+");
+
+  file:write("return [["..cjson.encode(Level.serialize()).."]]");
 
   io.close(file);
   
 end
 
+function Level.loadFromUrl(url, levelId)
+
+    
+  network.async(function()
+      
+    local encodedLevel = require(url);
+    if (encodedLevel) then
+      local data = cjson.decode(encodedLevel);
+      if (data.grid) then
+        Editor.loadLevelName = levelId;
+        Level.deserialize(data);
+        Level.loadLevel(data);
+      end
+    end
+  
+    
+  end);
+
+end
+
+function Level.loadFromUser(levelName)
+
+  network.async(function()
+    local level = castle.storage.get("LEVEL>"..levelName);
+    local data = cjson.decode(level);
+    data = Level.deserialize(data);
+    Level.loadLevel(data);
+  end)
+
+end
+
+function Level.saveToUser(levelName)
+
+  network.async(function()
+    castle.storage.set("LEVEL>"..levelName, cjson.encode(Level.serialize()));
+
+    local levels = castle.storage.get("levels") or "";
+    local levelsArray = PostProcess.split(levels, ";");
+    
+    local thereAlready = false;
+    local numLevels = 0;
+
+    for i, lvlName in pairs(levelsArray) do
+      if lvlName == levelName then
+        thereAlready = true;
+      end
+
+      numLevels = i;
+    end
+
+    if (not thereAlready) then
+      levelsArray[numLevels + 1] = levelName;
+      levels = levels..";"..levelName;
+      castle.storage.set("levels", levels);
+    end
+
+    Editor.userLevels = levelsArray;
+
+    
+  end);
+
+end
+
+function Level.loadLevelFromDisk(filepath)
+
+  --[[
+  local file = io.open("C:/level.lua", "r");
+
+  local dec = cjson.decode(file:read("*a"));
+
+  io.close(file);
+
+  Level.loadLevel(Level.deserialize(dec));]]
+
+  Level.loadFromUrl("file://"..filepath);
+end
+
 function Level.postLevel()
 
-  local data = {};
-  data.grid = Voxel.postify(State.grid);
-  data.version = PostVersion;
-  data.blockTypes = Voxel.BLOCK_TYPES;
+  local data = Level.serialize();
   
   network.async(function()
     castle.post.create {

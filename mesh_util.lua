@@ -115,15 +115,28 @@ MeshUtil.makeCube = function(sx, sy, sz, ox, oy)
     local f = {x1, y0, z1};
     local g = {x1, y1, z1};
     local h = {x0, y1, z1};
+
+    local faces;
     
-    local faces = {
-      MeshUtil.makeCubeFace(a, b, c, d, ox, oy, 4),
-      MeshUtil.makeCubeFace(b, f, g, c, ox, oy, 1),
-      MeshUtil.makeCubeFace(d, c, g, h, ox, oy, 3),  
-      MeshUtil.makeCubeFace(e, a, d, h, ox, oy, 0),
-      MeshUtil.makeCubeFace(f, e, h, g, ox, oy, 5),
-      MeshUtil.makeCubeFace(a, e, f, b, ox, oy, 2)
-    };
+    if (type(ox) == "table") then
+      faces = {
+        MeshUtil.makeCubeFace(a, b, c, d, ox[5][1], ox[5][2], 4),
+        MeshUtil.makeCubeFace(b, f, g, c, ox[2][1], ox[2][2], 1),
+        MeshUtil.makeCubeFace(d, c, g, h, ox[4][1], ox[4][2], 3),  
+        MeshUtil.makeCubeFace(e, a, d, h, ox[1][1], ox[1][2], 0),
+        MeshUtil.makeCubeFace(f, e, h, g, ox[6][1], ox[6][2], 5),
+        MeshUtil.makeCubeFace(a, e, f, b, ox[3][1], ox[3][2], 2)
+      };
+    else
+      faces = {
+        MeshUtil.makeCubeFace(a, b, c, d, ox, oy, 4),
+        MeshUtil.makeCubeFace(b, f, g, c, ox, oy, 1),
+        MeshUtil.makeCubeFace(d, c, g, h, ox, oy, 3),  
+        MeshUtil.makeCubeFace(e, a, d, h, ox, oy, 0),
+        MeshUtil.makeCubeFace(f, e, h, g, ox, oy, 5),
+        MeshUtil.makeCubeFace(a, e, f, b, ox, oy, 2)
+      };
+    end
     
     local verts = {};
     local index = 1;

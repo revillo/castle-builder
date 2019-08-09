@@ -38,7 +38,8 @@ local DefaultVert = [[
   vec4 position(mat4 transform_projection, vec4 vertex_position)
   {
   
-    
+      vertex_position.a = 1.0;
+
       vec4 p = mvp * vertex_position;
       worldPos = (model * vertex_position).xyz;
       p.y = -p.y;      
@@ -124,6 +125,40 @@ local noise = [[
 
 ]];
 
+local shading = [[ 
+  
+const float shadowHeight = 8.0;
+        
+float getPlayerShadow() {
+  vec3 diff = cameraPos - worldPos;
+  float height = diff.y - 1.3;
+  float dist = max(abs(diff.x), abs(diff.z));
+  if (dist < 0.3 && height > 0.0 && height < shadowHeight) {
+    return 0.5 + (height/(shadowHeight*2.0));
+  } else {
+    return 1.0;
+  }
+}
+
+void getLighting(float bump, out float diffuse, out float spec) {
+  vec3 cameraRay = normalize(worldPos - cameraPos);
+            
+  vec3 wPos = worldPos + normal * bump * 0.05;
+  vec3 normalBump = -normalize(cross(dFdx(wPos), dFdy(wPos)));
+  vec3 r = reflect(cameraRay, -normalBump);
+
+  vec3 sun = normalize(vec3(1.0, 1.0, 1.0));
+  spec = pow(max(dot(r, sun), 0.0), 20.0);
+  diffuse = max(spec, dot(normalBump, sun) * 0.2 + 0.8) * 0.7 + 0.3 *normal.y;
+  
+  float shadow = getPlayerShadow();
+  diffuse *= shadow;
+  spec *= shadow;
+}
+
+]];
+
+
 local Shaders = {
   
   WaterTiles = (function()
@@ -184,6 +219,7 @@ local Shaders = {
         uniform vec3 cameraPos;
         //uniform float time;
         extern Image bumpTex;
+        ]]..shading..[[
         
         vec2 parallax(vec2 texCoords, vec3 viewDir, Image tex)
         { 
@@ -230,19 +266,6 @@ local Shaders = {
         }
         
         
-        const float shadowHeight = 8.0;
-        
-        float getPlayerShadow() {
-          vec3 diff = cameraPos - worldPos;
-          float height = diff.y - 1.3;
-          float dist = max(abs(diff.x), abs(diff.z));
-          if (dist < 0.3 && height > 0.0 && height < shadowHeight) {
-            return 0.5 + (height/(shadowHeight*2.0));
-          } else {
-            return 1.0;
-          }
-        }
-        
         vec4 effect( vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords )
         {
           
@@ -282,6 +305,7 @@ local Shaders = {
               bump *= 0.25;
             }
           }
+          /*
             vec3 cameraRay = normalize(worldPos - cameraPos);
             
             vec3 wPos = worldPos + normal * bump * 0.05;
@@ -295,6 +319,11 @@ local Shaders = {
             float shadow = getPlayerShadow();
             diffuse *= shadow;
             spec *= shadow;
+          */
+
+            float diffuse, spec;
+
+            getLighting(bump, diffuse, spec);
             
             
             if (fire) {
@@ -319,15 +348,59 @@ local Shaders = {
     
     local frag = [[
 
-      vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) {
-        return Texel(texture, texture_coords / 8.0);
+      uniform vec3 cameraPos;
+
+      varying vec3 worldPos;
+      varying vec3 normal;
+      varying vec3 tanCameraPos;
+      varying vec3 tanFragPos;
+      uniform mat4 model;
+
+      extern Image bumpTex;
+
+    ]]..shading..[[
+      vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) {        
+        color = Texel(texture, texture_coords / 8.0);
+
+        //Eye
+        if (texture_coords.x < 1.0) {
+          //vec3 cntr = floor(worldPos + vec3(0.5));
+          vec3 cntr = model[3].xyz;
+
+          vec3 toCamera = cameraPos - cntr;
+          vec3 toMe = worldPos - cntr;
+  
+          vec3 n = normalize(toCamera);
+          vec3 cylinderPerp = (toMe) - dot(toMe, n) * n; 
+          float eyeRadius = length(cylinderPerp);
+  
+  
+          if (eyeRadius < 0.02) {
+            color.rgb = vec3(1.0);
+          } else if (eyeRadius < 0.08) {
+            color.rgb = vec3(0.0);
+          } else if (eyeRadius < 0.15) {
+            //color.rgb = mix(vec3(0.968, 0.698, 0.403), vec3(0.32, 0.57, 0.90), (eyeRadius - 0.1)/0.1);
+            color.rgb = vec3(0.32, 0.57, 0.90);
+          }
+        }
+      
+        float bump = length(Texel(bumpTex, texture_coords / 8.0).rgb);
+
+        color.rgb *= 0.7 + normal.y * 0.3;
+
+        float diffuse, spec;
+        getLighting(bump, diffuse, spec);
+
+        return vec4(color.rgb * diffuse + vec3(spec * 0.3), 1.0);
+
       }
 
     ]];
 
     return love.graphics.newShader(DefaultVert, frag);
 
-  end)
+  end)()
 
 
 }

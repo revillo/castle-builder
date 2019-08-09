@@ -10,7 +10,7 @@ Voxel.BLOCK_TYPES = {
 }
 
 Voxel.LEVELS = {
-  "blank", "practice0", "practice1", "practice2"
+  "blank", "practice0", "intro_jumping", "practice1", "practice2"
 }
 
 Voxel.BLOCK_PROPERTIES = {
@@ -211,7 +211,7 @@ function Voxel.newStarterGrid()
   cubeList[cubeListIndex] = {
     center = {3, 11, 5},
     type = endType,
-    nextLevel = "practice1"
+    nextLevel = "intro_jumping"
   }
   
   cubeListIndex = cubeListIndex + 1;
@@ -241,7 +241,7 @@ Different block types have effects that can hinder or aid your journey, like rub
    cubeListIndex = cubeListIndex + 1;
    cubeList[cubeListIndex] = {
     type = infoType,
-    msg = [[In <1.0,0.6,0.3>EDIT MODE<1,1,1>, you can add, remove and modify blocks in the scene using the buttons on the right.
+    msg = [[In <1.0,0.6,0.3>EDIT MODE<1,1,1>, you can add, remove and modify blocks in the scene using the buttons on the left.
 
 You can create your own levels and post them to <0.5,0.5,0.5>Castle<1,1,1> for others to play!]],
 
@@ -771,7 +771,7 @@ function Matrix.unpostify(safeMatrix)
 end
 
 function Voxel.unpostify(grid)
-  
+
   for i, matrix in pairs(grid.matrices) do
     
     grid.matrices[i] = Matrix.unpostify(matrix);
@@ -830,15 +830,19 @@ function Voxel.postify(grid)
 
 end
 
+--[[
 function Voxel.intersectRayAABB(ray, abb)
 
   local o = ray.origin;
   local d = ray.direction;
+  abb.min = abb.ll;
+  abb.max = abb.ur;
+  ray.position = o;
 
-  --todo
-  return nil;
-
+  cpml.intersect.ray_aabb(ray, abb);
+  
 end
+]]
 
 function Voxel.expandAABB(aabb, amounts)
   
@@ -849,11 +853,26 @@ function Voxel.expandAABB(aabb, amounts)
 
 end
 
+function Voxel.makeAABB_CPML(center, extents)
+
+  local aabb = {
+    ll = {center.x - extents.x, center.y - extents.y, center.z - extents.z},
+    ur = {center.x + extents.x, center.y + extents.y, center.z + extents.z}
+  }
+
+  return aabb;
+
+end
+
 function Voxel.makeAABB(center, extents)
   
+  local x = center[1];
+  local y = center[2];
+  local z = center[3];
+
   return {
-    ll = {center[1] - extents[1], center[2] - extents[2], center[3] - extents[3]},
-    ur = {center[1] + extents[1], center[2] + extents[2], center[3] + extents[3]}
+    ll = {x - extents[1], y - extents[2], z - extents[3]},
+    ur = {x + extents[1], y + extents[2], z + extents[3]}
   }
   
 end

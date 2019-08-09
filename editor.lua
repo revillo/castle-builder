@@ -8,160 +8,266 @@ local Editor = {
         "Block", "Agent"
     },
 
-    sceneType = "Block", 
+    sceneType = "Block",
     voxelType = "wood",
     voxelColor = {1,1,1},
     tool = "Add",
     isActive = true,
+    agentsPaused = false,
     gravity = true,
     mouseCamera = false,
     loadLevelName = Voxel.LEVELS[2],
     toolCount = 1
 }
 
-function Editor.uiupdate(State)
+local function printBool(value, on, off)
+  if (value) then return on else return off end;
+end
+
+function Editor.printTooltip()
+  love.graphics.setColor(1,1,1,1);
+
+  love.graphics.printf([[Edit Mode
+[G] - ]]..printBool(Editor.gravity, "Gravity On", "Gravity Off")..[[ 
+[P] - ]]..printBool(Editor.agentsPaused, "Sim Paused", "Sim Running")..[[ 
+[Enter] - Play Mode]], 5, 0, 400);
+
+end
+
+function Editor.keypressed(key)
+
+  if (key == "g") then
+    Editor.gravity = not Editor.gravity;
+  elseif (key == "p") then
+    Editor.agentsPaused = not Editor.agentsPaused;
+  elseif  (key == "return") then
+    Editor.enterPlayMode();
+    Gameplay.setMouseControlCamera(true);
+  end
+
+end
+
+function Editor.enterPlayMode()
+  State.mouseCameraPressed = true;
+  --Gameplay.teleportPlayerToStart(State.player1);
+  Editor.isActive = false;
+end
+
+function Editor.enterEditMode()
+
+  Editor.isActive = true;
+  Gameplay.setMouseControlCamera(false);
+
+end
+
+function Editor.uiupdate()
     
     if (not Editor.isActive) then
-      
-      local editLevel = ui.button("Edit Level");
-      if (editLevel) then
-        Editor.isActive = true;
-        Gameplay.setMouseControlCamera(false);
-      end
       return;
     end
     
-    local playLevelBtn, postLevelBtn;
+    ui.tabs('main tabs', function()
     
-    playLevelBtn = ui.button("Play Level");
-    postLevelBtn = ui.button("Post Level");
-    
-    if (DEVELOPER_MODE) then
-      local saveLevelBtn = ui.button("Save Level To File");
-      local loadLevelBtn = ui.button("Load Level From File");
-    
-      if (saveLevelBtn) then
-        Level.saveLevel("levels/last.lua");
-      end
-    
-      if (loadLevelBtn) then
-        Level.loadLevelFromId("last");
-      end
-    end
-    
-    if (postLevelBtn) then
-      Level.postLevel();
-    end
-    
-    if (playLevelBtn) then
-      --setMouseControlCamera(true);
-      State.mouseCameraPressed = true;
-      Gameplay.teleportPlayerToStart(State.player1);
-      Editor.isActive = false;
-    end
-  
-    ui.section("Change Level", {
-      defaultOpen = false,
-    }, function()
-      
-      Editor.loadLevelName = ui.dropdown("Select Level", Editor.loadLevelName, Voxel.LEVELS, {
-        
-        onChange = function(level)
-          Level.loadLevelFromId(level);
-        end
-      
-      });
-    
-    end);
-    
-    
-    ui.section("Edit Scene", {
-      defaultOpen = true,
-    }, function()
-      
-        Editor.sceneType = ui.dropdown("Type", Editor.sceneType, Editor.SCENE_TYPES);
+      ui.tab("Edit", function()
 
-        if (Editor.sceneType == "Block") then
-            Editor.voxelType = ui.dropdown("Block Type", Editor.voxelType, Voxel.BLOCK_TYPES, {
-            
-            onChange = function(typeName)
-            
-                if (Editor.selection) then
-                    Editor.selection.voxel.type = Voxel.BLOCK_INDEX_MAP[typeName];
+    
+                Editor.sceneType = ui.dropdown("Type", Editor.sceneType, Editor.SCENE_TYPES, {
+                  onChange = function()
+                    Editor.selection = nil;
+                  end
+                });
+
+                if (Editor.sceneType == "Block") then
+                    Editor.voxelType = ui.dropdown("Block Type", Editor.voxelType, Voxel.BLOCK_TYPES, {
+                    
+                    onChange = function(typeName)
+                    
+                        if (Editor.selection) then
+                            Editor.selection.voxel.type = Voxel.BLOCK_INDEX_MAP[typeName];
+                            local c = Editor.selection.center;
+                            Voxel.insert(State.grid, Editor.selection.voxel, c[1], c[2], c[3]); 
+                        end
+                        
+                    end
+                    
+                    });
+
+                            
+                  --Block Attributes
+                  if (Editor.selection) then
                     local c = Editor.selection.center;
-                    Voxel.insert(State.grid, Editor.selection.voxel, c[1], c[2], c[3]); 
-                end
-                
-            end
-            
-            });
-        elseif (Editor.sceneType == "Agent") then
-            Editor.agentType = ui.dropdown("Agent Type", Editor.agentType or "SpringHead", Agent.TYPES, {
-                
-            });
-        end
+                    ui.markdown("x="..c[1].." y="..c[2].." z="..c[3]);
+                    
+                    local voxel = Editor.selection.voxel;
+                    local props = Voxel.getPropertyForType(voxel.type);
+                    if (props.uiupdate) then
+                      props.uiupdate(voxel);
+                    end
+                  end
 
-      Editor.tool = ui.radioButtonGroup('Tool', Editor.tool, Editor.TOOLS, {
-        onChange = function(tool)
+                elseif (Editor.sceneType == "Agent") then
+                    Editor.agentType = ui.dropdown("Agent Type", Editor.agentType or "SpringHead", Agent.TYPES, {
+                        onChange = function()
+                          Editor.agentAttributes = {};
+                        end
+                    });
+
+                    local props = Agent.TYPE_PROPERTIES[Editor.agentType];
+
+                    --Agent Attributes
+                    if (props.attributes) then
+                      Editor.agentAttributes = Editor.agentAttributes or {};
+                      
+                      for name, params in pairs(props.attributes) do
+
+                        local UIUpdateAgentAttribute = {
+                          onChange = function(newValue)
+                            Editor.selection.agent[name] = newValue;
+                          end
+                        };
+                        
+                        local value = Editor.agentAttributes[name];
+                        if (value == nil) then
+                          value = params.default;
+                        end
+
+                        if (params.type == "bool") then
+                          Editor.agentAttributes[name] = ui.checkbox(name, value, UIUpdateAgentAttribute);
+                        elseif (params.type == "option") then
+                          Editor.agentAttributes[name] = ui.radioButtonGroup(name, value, params.options, UIUpdateAgentAttribute);
+                        end
+
+                      end
+
+                    end
+                end
+
+              Editor.tool = ui.radioButtonGroup('Tool', Editor.tool, Editor.TOOLS, {
+                onChange = function(tool)
+                  
+                  if (tool ~= "select") then
+                    Editor.selection = nil;
+                  end
+
+                end      
+              });
+              
+              if (Editor.tool == "Add" and Editor.sceneType == "Block") then
+                Editor.toolCount = ui.slider("Block Multiplier", Editor.toolCount, 1, 10);        
+              end
+
+              
+              --[[
+              Editor.voxelColor = {ui.colorPicker("Paint Color", Editor.voxelColor[1], Editor.voxelColor[2], Editor.voxelColor[3], 1, {
+                  enableAlpha = false,
+                  onChange = function(clr)
+                    
+                    if (Editor.selection) then
+                      Editor.selection.voxel.color = {clr.r, clr.g, clr.b};
+                      local c = Editor.selection.center;
+                      Voxel.insert(State.grid, Editor.selection.voxel, c[1], c[2], c[3]);
+                    end
+                end
+                })
+              };]]
+            
+              --[[
+            ui.section("Editor Camera", {
+              defaultOpen = true,
+            }, function()
+              
+              Editor.gravity = ui.checkbox("Gravity", Editor.gravity);
+              Editor.mouseCamera = ui.checkbox("Lock Cursor", Editor.mouseCamera, {
+                onChange = function(toggle)
+                
+                  if (toggle) then
+                    State.mouseCameraPressed = true;
+                  else
+                    Gameplay.setMouseControlCamera(false);
+                  end
+                
+                end
+              });
+              
+              end);]]
+        
+    end)
+
+    ui.tab("File", function()
+       local postLevelBtn, newLevelBtn;
+
+        ui.image("castle64.png")
+        postLevelBtn = ui.button("Post Level!");
+        newLevelBtn = ui.button("New Level");
+      
+        ui.section("Cloud Storage", function()
           
-          if (tool ~= "select") then
-            Editor.selection = nil;
+          Editor.levelName = ui.textInput("Level Name", Editor.levelName or "My Level");
+          local saveUserBtn = ui.button("Save");
+  
+          if (saveUserBtn) then
+            Level.saveToUser(Editor.levelName);
           end
 
-        end      
-      });
-      
-      if (Editor.tool == "Add" and Editor.sceneType == "Block") then
-        Editor.toolCount = ui.slider("Block Multiplier", Editor.toolCount, 1, 10);        
-      end
+          if (Editor.userLevels) then
+            ui.dropdown("My Levels", nil, Editor.userLevels, {
+              onChange = function(levelName)
+                Editor.levelName = levelName;
+                Level.loadFromUser(levelName);
+              end
+            });
+          end
+          
+        end);
 
-      
-      --[[
-      Editor.voxelColor = {ui.colorPicker("Paint Color", Editor.voxelColor[1], Editor.voxelColor[2], Editor.voxelColor[3], 1, {
-          enableAlpha = false,
-          onChange = function(clr)
-            
-            if (Editor.selection) then
-              Editor.selection.voxel.color = {clr.r, clr.g, clr.b};
-              local c = Editor.selection.center;
-              Voxel.insert(State.grid, Editor.selection.voxel, c[1], c[2], c[3]);
+
+
+        --File IO
+        if (DEVELOPER_MODE) then
+
+          ui.section("File System", function()
+          
+            Editor.filepath = ui.textInput("Filepath", Editor.filepath or "C:/castle-builder/levels/newLevel.lua")
+    
+            local saveLevelBtn = ui.button("Save Level To File");
+            local loadLevelBtn = ui.button("Load Level From File");
+          
+            if (saveLevelBtn) then
+              Level.saveLevelToDisk(Editor.filepath);
             end
-         end
-        })
-      };]]
-        
-      
-      if (Editor.selection) then
-        local c = Editor.selection.center;
-        ui.markdown("x="..c[1].." y="..c[2].." z="..c[3]);
-        
-        local voxel = Editor.selection.voxel;
-        local props = Voxel.getPropertyForType(voxel.type);
-        if (props.uiupdate) then
-          props.uiupdate(voxel);
+          
+            if (loadLevelBtn) then
+              Level.loadLevelFromDisk(Editor.filepath);
+            end
+          
+          end);
+          
+         
         end
-      end
+
+        if (postLevelBtn) then
+          Level.postLevel();
+        end
+           
+        if (newLevelBtn) then
+          Level.loadLevelFromId("blank");
+        end
+
+        Editor.loadLevelName = ui.dropdown("Select Level", Editor.loadLevelName, Voxel.LEVELS, {
+            
+          onChange = function(level)
+            Level.loadLevelFromId(level);
+          end
+        
+        });
     
     end);
+
     
-     ui.section("Editor Camera", {
-      defaultOpen = true,
-    }, function()
-      
-      Editor.gravity = ui.checkbox("Gravity", Editor.gravity);
-      Editor.mouseCamera = ui.checkbox("Mouse", Editor.mouseCamera, {
-        onChange = function(toggle)
-        
-          if (toggle) then
-            State.mouseCameraPressed = true;
-          else
-            Gameplay.setMouseControlCamera(false);
-          end
-        
-        end
-      });
-      
-      end);
+    end);
+
+
+    
     
 end
 
@@ -188,7 +294,11 @@ function Editor.insertAgent(prevCenter, normal)
    
     if (vy < 0) then return end;
 
-    Agent.addAgent(State.agentSystem, Editor.agentType, vx, vy, vz);
+    local ag = Agent.addAgent(State.agentSystem, Editor.agentType, vx, vy, vz);
+    
+    for name, value in pairs(Editor.agentAttributes) do
+      ag[name] = value;
+    end
 
 end
 
@@ -266,17 +376,30 @@ function Editor.mousepressed(x, y, button)
     if (Editor.sceneType == "Agent") then
 
         if (Editor.tool == "Select") then
-            if (tAgent < tVoxel) then
-                --todo select agent
+            if (agent and ((tAgent and not tVoxel) or (tAgent < tVoxel))) then
+                Editor.selection = {
+                  agent = agent,
+                  center = agent.center,
+                  voxel = nil
+                }
+
+                Editor.agentAttributes = {};
+                local props = Agent.getProperties(agent);
+                Editor.agentType = agent.typeName;
+
+                for name in pairs(props.attributes or {}) do
+                  Editor.agentAttributes[name] = agent[name];
+                end
             end
-        elseif (Editor.tool == "Add") then
+        elseif (Editor.tool == "Add" and button == 1) then
             Editor.insertAgent(c, normal);
-        elseif (Editor.tool == "Remove") then
-            if (tAgent < tVoxel) then
-                --todo remove agent
+        elseif (Editor.tool == "Remove" or (Editor.tool == "Add" and button == 2)) then
+          if (agent and ((tAgent and not tVoxel) or (tAgent < tVoxel))) then
+            Agent.removeAgent(State.agentSystem, agent);
             end
         end
-
+        
+      return;
     end
 
 
@@ -301,6 +424,25 @@ function Editor.mousepressed(x, y, button)
   end  
 end
 
+function Editor.drawOverlay()
 
+  local w, h = love.graphics.getDimensions();
+
+
+  local mx, my = love.mouse.getPosition();
+  if (State.mouseCamera) then
+    mx, my = w * 0.5, h * 0.5;
+  end
+
+  if (Editor.tool == "Add") then
+    love.graphics.setColor(1,1,1,0.4);
+    love.graphics.rectangle("fill", mx - 10, my - 1, 20,  2);
+    love.graphics.rectangle("fill", mx - 1,  my - 10, 2,  20);
+  elseif (Editor.tool == "Remove") then
+    love.graphics.setColor(1,1,1,0.4);
+    love.graphics.rectangle("fill", mx - 10, my - 1, 20,  2);
+  end
+
+end
 
 return Editor;
