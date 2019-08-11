@@ -16,7 +16,6 @@ local Editor = {
     agentsPaused = false,
     gravity = true,
     mouseCamera = false,
-    loadLevelName = Voxel.LEVELS[2],
     toolCount = 1
 }
 
@@ -48,6 +47,8 @@ function Editor.keypressed(key)
 end
 
 function Editor.enterPlayMode()
+  
+  --Gameplay.setMouseControlCamera(true);
   State.mouseCameraPressed = true;
   --Gameplay.teleportPlayerToStart(State.player1);
   Editor.isActive = false;
@@ -57,6 +58,7 @@ function Editor.enterEditMode()
 
   Editor.isActive = true;
   Gameplay.setMouseControlCamera(false);
+  State.mouseCameraPressed = false;
 
 end
 
@@ -122,7 +124,9 @@ function Editor.uiupdate()
 
                         local UIUpdateAgentAttribute = {
                           onChange = function(newValue)
-                            Editor.selection.agent[name] = newValue;
+                            if (Editor.selection and Editor.selection.agent) then
+                              Editor.selection.agent[name] = newValue;
+                            end
                           end
                         };
                         
@@ -196,7 +200,7 @@ function Editor.uiupdate()
     ui.tab("File", function()
        local postLevelBtn, newLevelBtn;
 
-        ui.image("castle64.png")
+        ui.image("castle.png")
         postLevelBtn = ui.button("Post Level!");
         newLevelBtn = ui.button("New Level");
       
@@ -253,7 +257,7 @@ function Editor.uiupdate()
           Level.loadLevelFromId("blank");
         end
 
-        Editor.loadLevelName = ui.dropdown("Select Level", Editor.loadLevelName, Voxel.LEVELS, {
+        ui.dropdown("Prebuilt Levels", nil, Voxel.LEVELS, {
             
           onChange = function(level)
             Level.loadLevelFromId(level);
@@ -283,11 +287,11 @@ function Editor.selectVoxel(voxel, x, y, z)
 
 end
 
-function Editor.insertAgent(prevCenter, normal)
+function Editor.insertAgent(prevCenter, normal, topOnly)
 
     local c = prevCenter;
-   
-    if (normal.y < 0.5) then return end;
+  
+    if (topOnly and normal.y < 0.5) then return end;
 
    local round = cpml.utils.round;
    local vx, vy, vz = round(c[1] + normal.x), round(c[2] + normal.y), round(c[3] + normal.z);
@@ -392,7 +396,7 @@ function Editor.mousepressed(x, y, button)
                 end
             end
         elseif (Editor.tool == "Add" and button == 1) then
-            Editor.insertAgent(c, normal);
+            Editor.insertAgent(c, normal, Editor.agentType == "SpringHead");
         elseif (Editor.tool == "Remove" or (Editor.tool == "Add" and button == 2)) then
           if (agent and ((tAgent and not tVoxel) or (tAgent < tVoxel))) then
             Agent.removeAgent(State.agentSystem, agent);

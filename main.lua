@@ -22,6 +22,25 @@ if CASTLE_PREFETCH then
     })
 end
 
+Sound = require('lib/sound');
+
+Audio = {
+  jump = Sound:new("audio/jump.ogg",2),
+  step = Sound:new("audio/land.ogg", 5),
+  spring = Sound:new("audio/spring.ogg", 2),
+  boing = Sound:new("audio/boing.ogg", 3),
+  scream = Sound:new("audio/scream.ogg"),
+  winwarp = Sound:new("audio/win.ogg"),
+  swim = Sound:new("audio/swim.ogg"),
+  lava = Sound:new("audio/lava.ogg")
+}
+
+Audio.winwarp:setVolume(0.5);
+Audio.step:setCooldown(0.6);
+Audio.jump:setVolume(0.8);
+Audio.step:setVolume(0.2);
+Audio.swim:setCooldown(1.1);
+
 function SecondsToClock(seconds)
   local seconds = tonumber(seconds)
 
@@ -328,6 +347,8 @@ function PostProcess.playFallOverlay()
   PostProcess.startAlpha = 1.0;
   PostProcess.text = "Watch your step!";
   
+
+
 end
 
 function PostProcess.playFireOverlay()
@@ -370,39 +391,50 @@ function collidePlayerAABB(player, opbb, npbb, vbb, newPos, c, bounce, standCall
   
   local epsi = 0.0001;
 
+  local hit = false;
+
   --Y Negative
   if (opbb.ll[2] >= vbb.ur[2] and npbb.ll[2] < vbb.ur[2] and not vup1 and not vup2) then
     local bounceAmt =  math.min(-player.velocity.y * bounce, MAX_BOUNCE);
     player.velocity.y = math.max(bounceAmt, player.velocity.y);
     newPos.y = vbb.ur[2] + PLAYER_SIZE.y + epsi;
+    hit = true;
     standCallback();
   --Z Positive
   elseif (opbb.ur[3] <= vbb.ll[3] and npbb.ur[3] > vbb.ll[3] and not vback) then
     local bounceAmt =  math.max(-player.velocity.z * bounce, -MAX_BOUNCE);
     player.velocity.z = math.min(bounceAmt, player.velocity.z);
     newPos.z = vbb.ll[3] - PLAYER_SIZE.z - epsi;  
+    hit = true;
   --X Positive
   elseif (opbb.ur[1] <= vbb.ll[1] and npbb.ur[1] > vbb.ll[1] and not vleft) then
     local bounceAmt =  math.max(-player.velocity.x * bounce, -MAX_BOUNCE);
     player.velocity.x = math.min(bounceAmt, player.velocity.x);
     newPos.x = vbb.ll[1] - PLAYER_SIZE.x - epsi;  
+    hit = true;
   --Y Positive
   elseif (opbb.ur[2] <= vbb.ll[2] and npbb.ur[2] > vbb.ll[2] and not vdown1 and not vdown2) then
     local bounceAmt =  math.max(-player.velocity.y * bounce, -MAX_BOUNCE);
     player.velocity.y = math.min(bounceAmt, player.velocity.y);
     newPos.y = vbb.ll[2] - PLAYER_SIZE.y - epsi;   
+    hit = true;
   -- Z Negative
   elseif (opbb.ll[3] >= vbb.ur[3] and npbb.ll[3] < vbb.ur[3] and not vforward) then
     local bounceAmt =  math.min(-player.velocity.z * bounce, MAX_BOUNCE);
     player.velocity.z = math.max(bounceAmt, player.velocity.z);
     newPos.z = vbb.ur[3] + PLAYER_SIZE.z + epsi;
+    hit = true;
   --X Negative
   elseif (opbb.ll[1] >= vbb.ur[1] and npbb.ll[1] < vbb.ur[1] and not vright) then
     local bounceAmt =  math.min(-player.velocity.x * bounce, MAX_BOUNCE);
     player.velocity.x = math.max(bounceAmt, player.velocity.x);
     newPos.x = vbb.ur[1] + PLAYER_SIZE.x + epsi;
+    hit = true;
   end  
 
+   if (hit and bounce > 0.0) then
+    Audio.boing:play();
+   end
 end
 
 
@@ -616,14 +648,29 @@ function Gameplay.updatePlayer(player, inputs, dt)
     player.velocity = player.velocity + (GRAVITY * dt);
     player.velocity = player.velocity + (player.forwardDir * inputs.move.z * speed) + (player.rightDir * inputs.move.x * speed);
   end
-      
+  
+  local velMag = vec3.len(player.velocity);
+  Audio.step:setCooldown(cpml.utils.clamp(1.5 / (velMag + 0.1), 0.2, 1.0));
   local collisionData = {};
   
   --Collide player with voxels and agents
   Gameplay.collidePlayer(player, dt, collisionData);
  
+ local ppos = player.position; 
+  local vbelow = Voxel.get(State.grid, ppos.x, ppos.y - PLAYER_SIZE.y - 0.5, ppos.z);
+
+  if (collisionData.standing and velMag > 2.0 and not collisionData.water) then
+    if (vbelow and (vbelow.type == Voxel.BLOCK_INDEX_MAP["ice"]  or vbelow.type == Voxel.BLOCK_INDEX_MAP["rubber"])) then
+
+    else
+      Audio.step:play();
+    end
+  end
+
   if (inputs.jump == 1 and collisionData.standing) then
     player.velocity = player.velocity + (JUMP);
+    Audio.jump:play();
+    Audio.step:resetCooldown();
     --player.velocity.y = (JUMP * dt).y;
   end
   
@@ -643,6 +690,8 @@ function Gameplay.updatePlayer(player, inputs, dt)
   --Handle edge cases
   if (collisionData.fire) then
     PostProcess.playFireOverlay();
+    Audio.scream:play();
+    Audio.lava:play();
     Gameplay.teleportPlayerToStart(player);
   end
   
@@ -652,6 +701,7 @@ function Gameplay.updatePlayer(player, inputs, dt)
   
   if (player.position.y < WORLD_Y_MIN) then
     PostProcess.playFallOverlay();
+    Audio.scream:play();
     Gameplay.teleportPlayerToStart(player);
   end
   
@@ -662,10 +712,17 @@ function Gameplay.updatePlayer(player, inputs, dt)
     
     State.levelFinished = true;
     PostProcess.playWinOverlay();
+    if (collisionData.nextLevel and collisionData.nextLevel ~= "") then
+      Audio.winwarp:play();
+    end
     Level.loadLevelFromId(collisionData.nextLevel);
   end
   
   player.swimming = collisionData.water;
+
+  if (collisionData.water and velMag > 1.0) then
+    Audio.swim:play();
+  end
   
 end
 
@@ -831,7 +888,7 @@ end
 function client.load()
   love.resize();
 
-  font = love.graphics.newImageFont("imagefont.png",
+  local font = love.graphics.newImageFont("imagefont.png",
     " abcdefghijklmnopqrstuvwxyz" ..
     "ABCDEFGHIJKLMNOPQRSTUVWXYZ0" ..
     "123456789.,!?-+/():;%&`'*#=[]\"")
@@ -849,6 +906,7 @@ function client.load()
     Editor.userLevels = levelsArray;
   end);
 
+  Editor.enterPlayMode();
   --loadLevelFromId("practice0");
 end
 
@@ -920,6 +978,7 @@ end
 function Level.deserialize(data)
 
   data.grid = Voxel.unpostify(data.grid);
+
   data.agentSystem = Agent.unpostify(data.agentSystem) or Agent.newAgentSystem();
 
   print(data.agentSystem.agentIndex);
@@ -956,7 +1015,6 @@ function Level.loadFromUrl(url, levelId)
     if (encodedLevel) then
       local data = cjson.decode(encodedLevel);
       if (data.grid) then
-        Editor.loadLevelName = levelId;
         Level.deserialize(data);
         Level.loadLevel(data);
       end

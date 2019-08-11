@@ -55,6 +55,8 @@ local PLATFORM_MESH = Mesh.makeCube(0.5, 0.5, 0.5, {
     {4.0, 0.0}
 });
 
+local PLATFORM_SPEED = 1;
+
 SPRING_HEAD_MESH:setTexture(Image.agents);
 SPRING_PLATFORM_MESH:setTexture(Image.agents);
 PLATFORM_MESH:setTexture(Image.agents);
@@ -141,6 +143,7 @@ Agent.TYPE_PROPERTIES = {
         onPlayerStep = function(agent, player)
             agent.popStart = now();
             player.velocity.y = SPRING_IMPULSE;
+            Audio.spring:play();
         end,
 
         update = function(agent, dt)
@@ -227,11 +230,11 @@ Agent.TYPE_PROPERTIES = {
         onPlayerStep = function(agent, player)
 
             agent.inv = agent.inv or 1;
-            
+
             if (agent.direction == "left_right") then
-                tempVel:set(0.5 * agent.inv, 0, 0);
+                tempVel:set(PLATFORM_SPEED * agent.inv, 0, 0);
             elseif (agent.direction == "forward_back") then
-                tempVel:set(0, 0, 0.5 * agent.inv);
+                tempVel:set(0, 0, PLATFORM_SPEED * agent.inv);
             end
 
             player.velocityMatch = player.velocityMatch or vec3();
@@ -244,9 +247,9 @@ Agent.TYPE_PROPERTIES = {
             agent.inv = agent.inv or 1;
 
             if (agent.direction == "left_right") then
-                tempVel:set(0.5 * agent.inv, 0, 0);
+                tempVel:set(PLATFORM_SPEED * agent.inv, 0, 0);
             elseif (agent.direction == "forward_back") then
-                tempVel:set(0, 0, 0.5 * agent.inv);
+                tempVel:set(0, 0, PLATFORM_SPEED * agent.inv);
             end
 
             local newPos = tempPos + tempVel * dt;
@@ -366,10 +369,21 @@ function Agent.traceRay(sys, ray)
 end
 
 function Agent.removeAgent(sys, agent)
-    for i, ag in pairs(sys.agents) do
+
+    local didRemove = false;
+
+    for i, ag in pairs(sys.agents) do        
         if (agent == ag) then
-            sys.agents[i] = nil;
+            didRemove = true;
+            if (i == sys.agentIndex) then
+                sys.agents[i] = nil;
+            else
+                sys.agents[i] = sys.agents[sys.agentIndex];
+            end
         end
+    end
+    if (didRemove) then
+        sys.agentIndex = sys.agentIndex - 1;
     end
 end
 

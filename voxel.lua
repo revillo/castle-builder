@@ -10,7 +10,7 @@ Voxel.BLOCK_TYPES = {
 }
 
 Voxel.LEVELS = {
-  "blank", "practice0", "intro_jumping", "practice1", "practice2"
+  "blank", "intro_guide", "intro_castle", "intro_jumping", "intro_lava", "intro_spring", "intro_edit"
 }
 
 Voxel.BLOCK_PROPERTIES = {
@@ -734,7 +734,6 @@ function Voxel.draw(grid)
   
   if (now - lastSortTime > 1.0) then
     Voxel.sortWater(grid);
-    --print("sorting water");
     lastSortTime = now;
   end
   
