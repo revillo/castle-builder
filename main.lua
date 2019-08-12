@@ -11,7 +11,9 @@ if CASTLE_PREFETCH then
         'lib/cpml/modules/mat4.lua',
         'lib/cpml/modules/quat.lua',
         'lib/cpml/modules/constants.lua',
+        'lib/cpml/modules/intersect.lua',
         'lib/cpml/init.lua',
+        'lib/sound.lua',
         'tiles2.png',
         'shaders.lua',
         'editor.lua',
@@ -19,6 +21,15 @@ if CASTLE_PREFETCH then
         'voxel.lua',
         'agent.lua',
         'mesh_util.lua',
+        'audio/jump.ogg',
+        'audio/land.ogg',
+        'audio/spring.ogg',
+        'audio/boing.ogg',
+        'audio/scream.ogg',
+        'audio/win.ogg',
+        'audio/swim.ogg',
+        'audio/lava.ogg',
+        'ImageFont.png'
     })
 end
 
@@ -40,6 +51,7 @@ Audio.step:setCooldown(0.6);
 Audio.jump:setVolume(0.8);
 Audio.step:setVolume(0.2);
 Audio.swim:setCooldown(1.1);
+Audio.winwarp:setCooldown(6.0);
 
 function SecondsToClock(seconds)
   local seconds = tonumber(seconds)
@@ -888,7 +900,7 @@ end
 function client.load()
   love.resize();
 
-  local font = love.graphics.newImageFont("imagefont.png",
+  local font = love.graphics.newImageFont("ImageFont.png",
     " abcdefghijklmnopqrstuvwxyz" ..
     "ABCDEFGHIJKLMNOPQRSTUVWXYZ0" ..
     "123456789.,!?-+/():;%&`'*#=[]\"")
@@ -912,7 +924,7 @@ end
 
 
 function castle.postopened(post)
-  
+
   local version = post.data.version;
   
   if (version < 3) then
@@ -981,7 +993,7 @@ function Level.deserialize(data)
 
   data.agentSystem = Agent.unpostify(data.agentSystem) or Agent.newAgentSystem();
 
-  print(data.agentSystem.agentIndex);
+  return data;
 end
 
 function Level.serialize()
