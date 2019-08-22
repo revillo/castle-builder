@@ -11,6 +11,7 @@ BASIC_ATTRIBUTES = {
   FACE_INDEX_ATTRIBUTE
 }
 
+MeshUtil.BASIC_ATTRIBUTES = BASIC_ATTRIBUTES;
 
 MeshUtil.makePlaneY = function(w, h)
   
@@ -100,6 +101,7 @@ MeshUtil.makeCubeFace = function(a, b, c, d, ou, ov, faceIndex)
   };
 end
 
+
 MeshUtil.makeCube = function(sx, sy, sz, ox, oy)
 
     local x0, x1 = sx, -sx;
@@ -129,12 +131,12 @@ MeshUtil.makeCube = function(sx, sy, sz, ox, oy)
       };
     else
       faces = {
+        MeshUtil.makeCubeFace(a, e, f, b, ox, oy, 2),
         MeshUtil.makeCubeFace(a, b, c, d, ox, oy, 4),
         MeshUtil.makeCubeFace(b, f, g, c, ox, oy, 1),
-        MeshUtil.makeCubeFace(d, c, g, h, ox, oy, 3),  
-        MeshUtil.makeCubeFace(e, a, d, h, ox, oy, 0),
         MeshUtil.makeCubeFace(f, e, h, g, ox, oy, 5),
-        MeshUtil.makeCubeFace(a, e, f, b, ox, oy, 2)
+        MeshUtil.makeCubeFace(e, a, d, h, ox, oy, 0),
+        MeshUtil.makeCubeFace(d, c, g, h, ox, oy, 3)
       };
     end
     

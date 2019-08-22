@@ -821,7 +821,6 @@ function Gameplay.render()
   love.graphics.draw(State.canvas3D.color, 0, 0,0, 1, 1);
   PostProcess.render();
   
- 
   --Debug print framerates
   --love.graphics.setColor(1,0,0,1);
   --love.graphics.print(DTSave, 0, 0);

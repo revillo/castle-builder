@@ -120,6 +120,8 @@ local Images = {
   tilesBump = love.graphics.newImage('tiles2.png')
 }
 
+Voxel.Images = Images;
+
 Images.tilesBump:setFilter("nearest", "linear");
 Images.tiles:setFilter("nearest", "nearest");
 

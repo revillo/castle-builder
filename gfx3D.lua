@@ -54,7 +54,7 @@ local pickMatrix = mat4();
 local tanX, tanY = 0;
 
 
-function viewLook(out, eye, look_at, up)
+local function viewLook(out, eye, look_at, up)
 	local z_axis = (eye - look_at):normalize()
 	local x_axis = up:cross(z_axis):normalize()
 	local y_axis = z_axis:cross(x_axis):normalize()
@@ -80,7 +80,7 @@ function viewLook(out, eye, look_at, up)
 end
 local startTime = love.timer.getTime();
 
-function setUniform(name, ...)
+local function setUniform(name, ...)
   if (activeShader:hasUniform(name)) then
     activeShader:send(name,  ...);
   end
@@ -88,7 +88,7 @@ end
 
 local matrixTranspose = mat4();
 
-function setUniformMat4(name, matrix4)
+local function setUniformMat4(name, matrix4)
 
   mat4.transpose(matrixTranspose, matrix4);
   setUniform(name, matrixTranspose);
