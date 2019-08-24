@@ -52,6 +52,7 @@ Audio.jump:setVolume(0.8);
 Audio.step:setVolume(0.2);
 Audio.swim:setCooldown(1.1);
 Audio.winwarp:setCooldown(6.0);
+Audio.boing:setCooldown(0.2);
 
 function SecondsToClock(seconds)
   local seconds = tonumber(seconds)
@@ -404,47 +405,48 @@ function collidePlayerAABB(player, opbb, npbb, vbb, newPos, c, bounce, standCall
   local epsi = 0.0001;
 
   local hit = false;
+  local bounceAmt = 0;
 
   --Y Negative
   if (opbb.ll[2] >= vbb.ur[2] and npbb.ll[2] < vbb.ur[2] and not vup1 and not vup2) then
-    local bounceAmt =  math.min(-player.velocity.y * bounce, MAX_BOUNCE);
+    bounceAmt =  math.min(-player.velocity.y * bounce, MAX_BOUNCE);
     player.velocity.y = math.max(bounceAmt, player.velocity.y);
     newPos.y = vbb.ur[2] + PLAYER_SIZE.y + epsi;
     hit = true;
     standCallback();
   --Z Positive
   elseif (opbb.ur[3] <= vbb.ll[3] and npbb.ur[3] > vbb.ll[3] and not vback) then
-    local bounceAmt =  math.max(-player.velocity.z * bounce, -MAX_BOUNCE);
+    bounceAmt =  math.max(-player.velocity.z * bounce, -MAX_BOUNCE);
     player.velocity.z = math.min(bounceAmt, player.velocity.z);
     newPos.z = vbb.ll[3] - PLAYER_SIZE.z - epsi;  
     hit = true;
   --X Positive
   elseif (opbb.ur[1] <= vbb.ll[1] and npbb.ur[1] > vbb.ll[1] and not vleft) then
-    local bounceAmt =  math.max(-player.velocity.x * bounce, -MAX_BOUNCE);
+    bounceAmt =  math.max(-player.velocity.x * bounce, -MAX_BOUNCE);
     player.velocity.x = math.min(bounceAmt, player.velocity.x);
     newPos.x = vbb.ll[1] - PLAYER_SIZE.x - epsi;  
     hit = true;
   --Y Positive
   elseif (opbb.ur[2] <= vbb.ll[2] and npbb.ur[2] > vbb.ll[2] and not vdown1 and not vdown2) then
-    local bounceAmt =  math.max(-player.velocity.y * bounce, -MAX_BOUNCE);
+    bounceAmt =  math.max(-player.velocity.y * bounce, -MAX_BOUNCE);
     player.velocity.y = math.min(bounceAmt, player.velocity.y);
     newPos.y = vbb.ll[2] - PLAYER_SIZE.y - epsi;   
     hit = true;
   -- Z Negative
   elseif (opbb.ll[3] >= vbb.ur[3] and npbb.ll[3] < vbb.ur[3] and not vforward) then
-    local bounceAmt =  math.min(-player.velocity.z * bounce, MAX_BOUNCE);
+    bounceAmt =  math.min(-player.velocity.z * bounce, MAX_BOUNCE);
     player.velocity.z = math.max(bounceAmt, player.velocity.z);
     newPos.z = vbb.ur[3] + PLAYER_SIZE.z + epsi;
     hit = true;
   --X Negative
   elseif (opbb.ll[1] >= vbb.ur[1] and npbb.ll[1] < vbb.ur[1] and not vright) then
-    local bounceAmt =  math.min(-player.velocity.x * bounce, MAX_BOUNCE);
+    bounceAmt =  math.min(-player.velocity.x * bounce, MAX_BOUNCE);
     player.velocity.x = math.max(bounceAmt, player.velocity.x);
     newPos.x = vbb.ur[1] + PLAYER_SIZE.x + epsi;
     hit = true;
-  end  
+  end
 
-   if (hit and bounce > 0.0) then
+   if (hit and bounce > 0.0 and bounceAmt > 0.5) then
     Audio.boing:play();
    end
 end
@@ -842,6 +844,14 @@ function client.keypressed(key)
     if (key == "return") then
       Editor.enterEditMode();
     end
+  end
+
+end
+
+function client.wheelmoved(dx, dy)
+
+  if (Editor.isActive) then
+    Editor.wheelmoved(dx, dy);
   end
 
 end

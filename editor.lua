@@ -9,7 +9,8 @@ local Editor = {
     },
 
     sceneType = "Block",
-    voxelType = "wood",
+    blockType = "wood",
+    scrollIndex = Voxel.BLOCK_INDEX_MAP["wood"],
     voxelColor = {1,1,1},
     tool = "Add",
     isActive = true,
@@ -18,7 +19,8 @@ local Editor = {
     mouseCamera = false,
     toolCount = 1,
     renderCubeMesh = Mesh.Cube,
-    blockIcons = {}
+    blockIcons = {},
+    agentIcons = {}
 }
 
 local function printBool(value, on, off)
@@ -29,8 +31,8 @@ function Editor.printTooltip()
   love.graphics.setColor(1,1,1,1);
 
   love.graphics.printf([[Edit Mode
-[G] - ]]..printBool(Editor.gravity, "Gravity On", "Gravity Off")..[[ 
-[P] - ]]..printBool(Editor.agentsPaused, "Sim Paused", "Sim Running")..[[ 
+[G] - ]]..printBool(Editor.gravity, "Gravity Off", "Gravity On")..[[ 
+[P] - ]]..printBool(Editor.agentsPaused, "Run Sim", "Pause Sim")..[[ 
 [Enter] - Play Mode]], 5, 0, 400);
 
 end
@@ -82,7 +84,7 @@ function Editor.uiupdate()
                 });
 
                 if (Editor.sceneType == "Block") then
-                    Editor.voxelType = ui.dropdown("Block Type", Editor.voxelType, Voxel.BLOCK_TYPES, {
+                    Editor.blockType = ui.dropdown("Block Type", Editor.blockType, Voxel.BLOCK_TYPES, {
                     
                     onChange = function(typeName)
                     
@@ -284,7 +286,7 @@ function Editor.selectVoxel(voxel, x, y, z)
       voxel = voxel
    };
    
-   Editor.voxelType = Voxel.BLOCK_TYPES[voxel.type];
+   Editor.blockType = Voxel.BLOCK_TYPES[voxel.type];
    Editor.voxelColor = voxel.color or {1,1,1};
 
 end
@@ -337,7 +339,7 @@ function Editor.insertVoxel(prevCenter, normal)
     
     Voxel.insert(State.grid, 
       {
-        type = Voxel.BLOCK_INDEX_MAP[Editor.voxelType],
+        type = Voxel.BLOCK_INDEX_MAP[Editor.blockType],
         --color = Editor.voxelColor
       }, vx, vy, vz);
   return {vx, vy, vz};
@@ -370,16 +372,20 @@ end
 
 function Editor.mousepressed(x, y, button)
 
+  if (Editor.activeButton) then
+    Editor.activeButton();
+    return;
+  end
+
   if (State.mouseCameraPressed) then
     State.mouseCameraPressed = false;
     Gameplay.setMouseControlCamera(true);
   end
-  
+
   if (not Editor.isActive) then
     return;
   end
 
- 
   if (button == 3) then
     Gameplay.setMouseControlCamera(true);
   else
@@ -409,7 +415,7 @@ function Editor.mousepressed(x, y, button)
         Voxel.remove(State.grid, vx, vy, vz);  
       end
     elseif (Editor.tool == "Add") then
-      if (Editor.scenType == "Agent") then
+      if (Editor.sceneType == "Agent") then
         Editor.insertAgent(c, normal, Editor.agentType == "SpringHead");
       else
         for _ = 1, Editor.toolCount do
@@ -465,6 +471,7 @@ function Editor.mousepressed(x, y, button)
   
 end
 
+--todo cache point locs
 function Editor.drawDashedLine(x1,y1,x2,y2)
   love.graphics.setPointSize(1);
 
@@ -475,7 +482,7 @@ function Editor.drawDashedLine(x1,y1,x2,y2)
   y = y1;
 
   for i = 1, len do
-    love.graphics.point(x, y);
+    love.graphics.points(x, y);
     x = x + stepx;
     y = y + stepy;
   end
@@ -502,40 +509,95 @@ function Editor.drawTools()
   for i, tool in pairs(Editor.TOOLS) do
 
     local alpha = 0.5;
-
+    local boxOffset = 0.15 * iconSize;
+    local boxSize = iconSize * 0.7;
+    local textOffset = 0.25 * iconSize;
+    
     if (tool == Editor.tool) then
       alpha = 1.0;
+      love.graphics.setColor(1,1,1,1);
+      love.graphics.setLineWidth(2.0);
+      love.graphics.rectangle("line", toolX, toolY, iconSize, iconSize);
     end
 
-    love.graphics.setColor(1,1,1,alpha);
+    local mouseOver = Editor.mouseInBox(toolX, toolY, iconSize, iconSize);
 
-    local boxOffset = 0.1 * iconSize;
-    local boxSize = iconSize * 0.8;
-    local textOffset = 0.3 * iconSize;
+    if (mouseOver) then
+      alpha = 1.0;
+      Editor.tooltip = tool;
+    end
+
+
+    love.graphics.setColor(1,1,1,alpha);
 
      love.graphics.setLineWidth(1.0);
     --love.graphics.circle("line", toolX + iconSize * 0.5, toolY + iconSize * 0.5, iconSize * 0.5);
 
+    love.graphics.setColor(1,1,1,alpha * 0.3);
+    love.graphics.rectangle("fill", toolX, toolY, iconSize, iconSize);
+    love.graphics.setColor(1,1,1,alpha);
+
     if (tool == "Add") then
       love.graphics.rectangle("fill", toolX + boxOffset, toolY + boxOffset, boxSize, boxSize);
       love.graphics.setColor(0,0,0,alpha);
-      love.graphics.print("+"..Editor.toolCount, toolX + textOffset, toolY + textOffset);
+      love.graphics.print("+"..Editor.toolCount, toolX + textOffset, toolY + textOffset *1.2);
+
+      if (mouseOver) then
+        Editor.activeButton = function()
+          Editor.selection = nil;
+          if (Editor.tool ~= "Add") then
+            Editor.tool = "Add";
+          else
+            Editor.toolCount = Editor.toolCount + 3;
+            if (Editor.toolCount > 10) then
+              Editor.toolCount = 1;
+            end
+          end
+        end
+      end
+
     elseif (tool == "Remove") then
-      love.graphics.rectangle("line", toolX + boxOffset, toolY + boxOffset, boxSize, boxSize);
-      love.graphics.setColor(0.0, 0.0, 0.0, alpha);
-      love.graphics.print("-1", toolX + textOffset, toolY + textOffset);
+      love.graphics.setColor(1.0, 0.9, 0.9, alpha * 0.8);
+      love.graphics.rectangle("fill", toolX + boxOffset, toolY + boxOffset, boxSize, boxSize);
+      
+      --love.graphics.setColor(0.0, 0.0, 0.0, alpha);
+      --love.graphics.print("-1", toolX + textOffset, toolY + textOffset);
+      love.graphics.setLineWidth(3.0);
+      love.graphics.setColor(1.0, 0.0, 0.0, alpha);
+      local lo = iconSize * 0.4;
+      --love.graphics.circle("line", toolX + boxCenter, toolY + boxCenter, boxCenter * 0.8);
+      love.graphics.line(toolX + lo, toolY + lo, toolX + iconSize - lo, toolY + iconSize - lo);
+      love.graphics.line(toolX + lo, toolY + iconSize - lo, toolX + iconSize - lo, toolY + lo);
+      love.graphics.setLineWidth(1.0);
+
+      if (mouseOver) then
+        Editor.activeButton = function()
+          Editor.tool = tool;
+          Editor.selection = nil;
+        end
+      end
+
     elseif (tool == "Select") then
+
+      if (mouseOver) then
+        Editor.activeButton = function()
+          Editor.tool = tool;
+        end
+      end
+
       local x1, x2 = toolX + boxOffset, toolX + boxOffset + boxSize;
       local y1, y2 = toolY + boxOffset, toolY + boxOffset + boxSize; 
-
+      love.graphics.setColor(1,1,1,alpha);
       Editor.drawDashedLine(x1, y1, x2, y1);
       Editor.drawDashedLine(x1, y1, x1, y2);
       Editor.drawDashedLine(x2, y1, x2, y2);
       Editor.drawDashedLine(x1, y2, x2, y2);
+      love.graphics.setColor(1,1,1, alpha * 0.5);
+      love.graphics.rectangle("fill", toolX + boxOffset, toolY + boxOffset, boxSize, boxSize);
 
     end
 
-    toolY = toolY + iconSize;
+    toolY = toolY + iconSize * 1.1;
 
   end
 
@@ -544,13 +606,14 @@ function Editor.drawTools()
 
 end
 
+
 function Editor.drawIcons()
   local w, h = love.graphics.getDimensions();
   local mx, my = love.mouse.getPosition();
   
   local iconSize = 48;
   local iconX = 48;
-  local iconY = h - 2 * iconSize;
+  local iconY = h - 1.2 * iconSize;
 
   love.graphics.setColor(1,1,1,1);
 
@@ -577,6 +640,21 @@ function Editor.drawIcons()
       GFX.drawMesh(mesh);
     end
   end
+
+  for _, agentType in pairs(Agent.TYPES) do
+    if (not Editor.agentIcons[agentType]) then
+      Editor.agentIcons[agentType] = GFX.createCanvas3D(iconSize, iconSize, {dpiscale = 2});
+      local props = Agent.TYPE_PROPERTIES[agentType];
+      GFX.setCanvas3D(Editor.agentIcons[agentType]);
+      love.graphics.clear(0.0, 0.0, 0.0, 0.0, true, true);
+      GFX.setCameraPerspective(90 / 3, 1, 0.1, 5);
+      GFX.setCameraView(cpml.vec3(0.2, 0.8, 0.7) * 3, cpml.vec3(0,0,0), cpml.vec3(0,1,0));
+
+      props.draw({
+        center = {0.0, 0.0, 0.0}
+      });
+    end
+  end
     
   love.graphics.setCanvas();
   love.graphics.setShader();
@@ -584,19 +662,53 @@ function Editor.drawIcons()
   for typeIndex, blockType in pairs(Voxel.BLOCK_TYPES) do
     --love.graphics.circle("line", iconX + iconSize * 0.5, iconY + iconSize * 0.5, iconSize * 0.8);
 
-    if (blockType == Editor.voxelType) then
+    if (Editor.mouseInBox(iconX, iconY, iconSize, iconSize)) then
+      love.graphics.setColor(1,1,1,1);
+      Editor.tooltip = blockType;
+      Editor.activeButton = function()
+        Editor.sceneType = "Block";
+        Editor.blockType = blockType;
+        Editor.selection = nil;
+        Editor.tool = "Add";
+      end
+    else
+      love.graphics.setColor(1,1,1,0.4);
+    end
+    
+    if (blockType == Editor.blockType and Editor.sceneType == "Block") then
       love.graphics.setColor(1,1,1,1);
       love.graphics.setLineWidth(4.0);
       love.graphics.rectangle("line", iconX, iconY, iconSize, iconSize);
-    else
-      if (Editor.mouseInBox(iconX, iconY, iconSize, iconSize)) then
-        love.graphics.setColor(1,1,1,1);
-      else
-        love.graphics.setColor(1,1,1,0.4);
-      end
     end
 
     love.graphics.draw(Editor.blockIcons[blockType].color, iconX, iconY);
+    iconX = iconX + iconSize * 1.2;
+  end
+
+  iconX = iconX - (iconSize * 1.2) * 2;
+  iconY = iconY - (iconSize * 1.2);
+
+  for _, agentType in pairs(Agent.TYPES) do
+    if (Editor.mouseInBox(iconX, iconY, iconSize, iconSize)) then
+      love.graphics.setColor(1,1,1,1);
+      Editor.tooltip = agentType;
+      Editor.activeButton = function()
+        Editor.sceneType = "Agent";
+        Editor.agentType = agentType;
+        Editor.selection = nil;
+        Editor.tool = "Add";
+      end
+    else
+      love.graphics.setColor(1,1,1,0.4);
+    end
+    
+    if (agentType == Editor.agentType and Editor.sceneType == "Agent") then
+      love.graphics.setColor(1,1,1,1);
+      love.graphics.setLineWidth(4.0);
+      love.graphics.rectangle("line", iconX, iconY, iconSize, iconSize);
+    end
+
+    love.graphics.draw(Editor.agentIcons[agentType].color, iconX, iconY);
     iconX = iconX + iconSize + 12;
   end
 
@@ -609,20 +721,56 @@ function Editor.drawOverlay()
 
   if (State.mouseCamera) then
     mx, my = w * 0.5, h * 0.5;
+    return;
   end
 
-  if (Editor.tool == "Add") then
-    love.graphics.setColor(1,1,1,0.4);
-    love.graphics.rectangle("fill", mx - 10, my - 1, 20,  2);
-    love.graphics.rectangle("fill", mx - 1,  my - 10, 2,  20);
-  elseif (Editor.tool == "Remove") then
-    love.graphics.setColor(1,1,1,0.4);
-    love.graphics.rectangle("fill", mx - 10, my - 1, 20,  2);
-  end
+  Editor.activeButton = nil;
+  Editor.tooltip = nil;
 
   Editor.drawIcons();
   Editor.drawTools();
 
+  if (Editor.tooltip) then
+    love.graphics.setColor(1.0, 1.0, 1.0, 1.0);
+    love.graphics.print(Editor.tooltip, mx - 25, my - 25);
+  elseif (Editor.tool == "Add") then
+    love.graphics.setColor(0.5,1,0.5,0.4);
+    love.graphics.rectangle("fill", mx - 10, my - 1, 20,  2);
+    love.graphics.rectangle("fill", mx - 1,  my - 10, 2,  20);
+  elseif (Editor.tool == "Remove") then
+    love.graphics.setColor(1,0.5,0.5,1.0);
+    love.graphics.rectangle("fill", mx - 10, my - 1, 20,  2);
+  end
+
+end
+
+function Editor.wheelmoved(dx, dy)
+
+  local numBlocks = #Voxel.BLOCK_TYPES;
+  local numAgents = #Agent.TYPES;
+  local si = Editor.scrollIndex;
+
+  if (dy > 0) then
+    si = si + 1;
+  else
+    si = si - 1;
+  end
+
+  if (si <= 0) then
+    si = numBlocks + numAgents;
+  elseif (si > numBlocks + numAgents) then
+    si = 1;
+  end
+
+  if (si <= numBlocks) then
+    Editor.sceneType = "Block";
+    Editor.blockType = Voxel.BLOCK_TYPES[si];
+  else
+    Editor.sceneType = "Agent";
+    Editor.agentType = Agent.TYPES[si - numBlocks];
+  end
+
+  Editor.scrollIndex = si;
 end
 
 return Editor;
