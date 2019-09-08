@@ -78,6 +78,7 @@ Voxel = require("voxel");
 Agent = require("agent");
 ui = castle.ui;
 cjson = require("cjson");
+netclient = require("netclient");
 
 local mat4 = cpml.mat4;
 local vec3 = cpml.vec3;
