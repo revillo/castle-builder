@@ -628,7 +628,7 @@ function sypri.update(dt)
     sLastTick = sClock;
     
     if (sTimeStep % sUpdateRate == 0) then
-      print(sCurrentBandwidth);
+      --print(sCurrentBandwidth);
       sCurrentBandwidth = 0;
     end
   end

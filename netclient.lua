@@ -10,18 +10,39 @@ local NetClient = {
     otherPlayers = {
 
     },
+    
+    playerPhotos = {
+
+    },
+
+    otherPlayerMesh = Mesh.makeCube(0.5, 0.5, 0.5, 0, 0),
 
     id = -1,
 
-    inited = false
+    started = false,
+
+    csClient = cs.client
 
 };
 
+function NetClient.changeLevel()
+    NetClient.otherPlayers = {};
+end
 
 function NetClient.init()
+    if (USE_CASTLE_CONFIG) then
+        cs.client.useCastleConfig();
+    else
+        cs.client.enabled = true;
+        cs.client.start("localhost:22122");
+    end
+    print("Client Init");
+end
 
-    if (cs.client.id >= 0) then
-        NetClient.inited = true;
+function NetClient.start()
+    if (cs.client.id) then
+        print("Client Start");
+        NetClient.started = true;
         
         NetClient.id = cs.client.id;
         NetClient.playerShareId = "pc"..NetClient.id;
@@ -40,15 +61,21 @@ function NetClient.init()
             globalPriority = 1
         });
 
-        if (USE_CASTLE_CONFIG) then
-            cs.client.useCastleConfig();
-        else
-            cs.client.enabled = true;
-            cs.client.start("localhost:22122");
+
+        sypri.addTable(NetClient.playerShareId, NetClient.playerShare, {
+            NetClient.playerShareRoutine
+            --,NetClient.playerLevelRoutine
+        });
+
+        function sypri.onReceiveEvent(event)
+            if (event.cl) then
+                NetClient.otherPlayers[event.cl] = nil;
+            end
         end
 
         function sypri.onReceiveData(tableId, data)
             local arr = sypri.utils.splitString(tableId, " ");
+            --print("Receive", tableId, data.x);
             if (arr[1] == "ps") then
                 local opid = arr[2];
                 NetClient.otherPlayers[opid] = NetClient.otherPlayers[opid] or {};
@@ -58,11 +85,34 @@ function NetClient.init()
     end
 end
 
+local mat4 = cpml.mat4;
+local tempMat4 = mat4();
+
+function NetClient.draw()
+
+    for opid, op in pairs(NetClient.otherPlayers) do
+
+        mat4.identity(tempMat4);
+        tempMat4[13] = op.x;
+        tempMat4[14] = op.y;
+        tempMat4[15] = op.z;
+
+        if (NetClient.playerPhotos[opid]) then
+            NetClient.otherPlayerMesh:setTexture(NetClient.playerPhotos[opid])
+        else
+            --Set default player texture
+        end
+
+        GFX.drawMesh(NetClient.otherPlayerMesh, tempMat4);
+
+    end
+
+end
 
 function NetClient.update(dt)
 
-    if (not NetClient.inited) then
-        NetClient.init();
+    if (not NetClient.started) then
+        NetClient.start();
         return;
     end
 
@@ -72,7 +122,11 @@ function NetClient.update(dt)
     pc.x = player.position.x;
     pc.y = player.position.y;
     pc.z = player.position.z;
+    
+    pc.lvl = player.levelId;
 
     sypri.update(dt);
 
 end
+
+return NetClient;
